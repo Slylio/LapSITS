@@ -1,0 +1,16 @@
+name: lapSITS
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - numpy
+  - matplotlib
+  - higra
+  - shapely
+  - scikit-image
+  - pyqt
+  - qtpy
+  - pip
+  - pip:
+      - PyQt5
