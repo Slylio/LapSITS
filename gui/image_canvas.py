@@ -8,7 +8,7 @@ from skimage.color import rgb2gray
 from shapely.geometry import Polygon
 
 class ImageCanvas(QGraphicsView):
-    # Signal émis quand un polygone est sélectionné
+    # Signal emitted when a polygon is selected
     polygon_selected = pyqtSignal(object)  # Shapely Polygon
     
     def __init__(self, parent=None):
@@ -20,22 +20,22 @@ class ImageCanvas(QGraphicsView):
         self.current_index = 0
         self.setRenderHint(QPainter.Antialiasing)
         
-        # Politique de taille pour maximiser l'utilisation de l'espace
+        # Size policy to maximize space usage
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         
-        # Permettre le zoom avec la molette
+        # Allow zoom with mouse wheel
         self.setDragMode(QGraphicsView.RubberBandDrag)
         
-        # Variables pour la sélection de polygone
+        # Variables for polygon selection
         self.polygon_points = []
         self.polygon_item = None
         self.is_drawing_polygon = False
         self.current_polygon = None
         
-        # Variables pour l'affichage des nœuds sélectionnés
+        # Variables for displaying selected nodes
         self.ps_data = None
         self.selected_nodes = []
-        self.node_overlays = []  # Overlays pour les nœuds sélectionnés
+        self.node_overlays = []  # Overlays for selected nodes
         self.cached_masks = None  # Cache des masques calculés
         self.last_nodes_hash = None  # Hash des derniers nœuds pour détecter les changements
         
@@ -115,27 +115,27 @@ class ImageCanvas(QGraphicsView):
                 self.centerOn(scene_rect.center())
     
     def mousePressEvent(self, event):
-        """Gestion des clics de souris pour la sélection de polygone."""
+        """Mouse click handling for polygon selection."""
         if event.button() == Qt.LeftButton:
-            # Convertir les coordonnées de la vue vers la scène
+            # Convert coordinates from view to scene
             scene_pos = self.mapToScene(event.pos())
             
             if not self.is_drawing_polygon:
-                # Commencer un nouveau polygone
+                # Start a new polygon
                 self.start_polygon(scene_pos)
             else:
-                # Ajouter un point au polygone en cours
+                # Add a point to the current polygon
                 self.add_polygon_point(scene_pos)
                 
         elif event.button() == Qt.RightButton:
-            # Finir le polygone actuel
+            # Finish the current polygon
             if self.is_drawing_polygon:
                 self.finish_polygon()
             
         super().mousePressEvent(event)
     
     def start_polygon(self, scene_pos):
-        """Commence la sélection d'un nouveau polygone."""
+        """Starts selection of a new polygon."""
         self.is_drawing_polygon = True
         self.polygon_points = [scene_pos]
         
@@ -217,14 +217,14 @@ class ImageCanvas(QGraphicsView):
         super().keyPressEvent(event)
     
     def set_ps_data(self, ps_data):
-        """Définit les données du pattern spectra pour l'affichage des nœuds."""
+        """Sets the pattern spectra data for node display."""
         self.ps_data = ps_data
         
     def set_selected_nodes(self, selected_nodes):
-        """Définit les nœuds sélectionnés à afficher en surbrillance."""
+        """Sets the selected nodes to display in highlight."""
         self.selected_nodes = selected_nodes
         
-        # Invalider le cache si les nœuds ont changé
+        # Invalidate cache if nodes have changed
         nodes_hash = hash(tuple(sorted(selected_nodes))) if selected_nodes else None
         if nodes_hash != self.last_nodes_hash:
             self.cached_masks = None
@@ -233,8 +233,8 @@ class ImageCanvas(QGraphicsView):
         self.update_node_overlays()
         
     def update_node_overlays(self):
-        """Met à jour l'affichage des overlays pour les nœuds sélectionnés (version optimisée)."""
-        # Supprimer les anciens overlays
+        """Updates the overlay display for selected nodes (optimized version)."""
+        # Remove old overlays
         for overlay in self.node_overlays:
             self.scene.removeItem(overlay)
         self.node_overlays.clear()
@@ -242,7 +242,7 @@ class ImageCanvas(QGraphicsView):
         if not self.selected_nodes or not self.ps_data or not self.sequence:
             return
         
-        # Calculer les masques seulement si nécessaire (avec cache)
+        # Calculate masks only if necessary (with cache)
         if self.cached_masks is None:
             from core.pattern_spectra import compute_node_masks_per_timestep_optimized
             cube_shape = (len(self.sequence), self.sequence[0].shape[0], self.sequence[0].shape[1])
@@ -250,24 +250,24 @@ class ImageCanvas(QGraphicsView):
                 self.ps_data, self.selected_nodes, cube_shape
             )
         
-        # Afficher le masque pour l'index actuel
+        # Display mask for current index
         if self.current_index < len(self.cached_masks):
             mask = self.cached_masks[self.current_index]
             self.add_mask_overlay_optimized(mask)
             
     def add_mask_overlay_optimized(self, mask):
-        """Version optimisée pour ajouter un overlay coloré."""
+        """Optimized version to add a colored overlay."""
         if not mask.any():
             return
             
         h, w = mask.shape
         
-        # Optimisation: créer directement l'image avec les bonnes dimensions
-        # et éviter les copies inutiles
+        # Optimization: create image directly with correct dimensions
+        # and avoid unnecessary copies
         overlay_img = np.zeros((h, w, 4), dtype=np.uint8)
-        overlay_img[mask, :] = [255, 0, 0, 120]  # Rouge semi-transparent, plus efficace
+        overlay_img[mask, :] = [255, 0, 0, 120]  # Red semi-transparent, more efficient
         
-        # Conversion optimisée
+        # Optimized conversion
         qimg = QImage(overlay_img.data, w, h, w * 4, QImage.Format_RGBA8888)
         overlay_pixmap = QPixmap.fromImage(qimg)
         

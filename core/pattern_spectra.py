@@ -1,6 +1,6 @@
 """
-Module pour les calculs de Pattern Spectra (PS) sur les séquences d'images temporelles (SITS).
-Basé sur compute_ps_from_cube.py mais adapté pour l'interface graphique.
+Module for Pattern Spectra (PS) calculations on temporal image sequences (SITS).
+Based on compute_ps_from_cube.py but adapted for the graphical interface.
 """
 
 import numpy as np
@@ -13,17 +13,17 @@ from matplotlib import cm
 
 def compute_STstability_attribute_v2(tree, time_indices):
     n_leaves = tree.num_leaves()
-    T = len(time_indices) #nombre de timestemps
-    frame_size = n_leaves // T #taille des tranches de feuilles par timestep
+    T = len(time_indices) # number of timesteps
+    frame_size = n_leaves // T # size of leaf slices per timestep
   
     """
-    np.arange(n_leaves) // frame_size == i : true sur les feuilles de la tranche i (ex t1 : True x16, False x32, t2 : False x16, True x16, False x16 etc..)
-    hg.accumulate_sequential(tree, (np.arange(n_leaves) // frame_size == i).astype(np.float32), hg.Accumulators.sum) : calcul des aires en ne prenant que les feuilles de la tranche i
+    np.arange(n_leaves) // frame_size == i : true on leaves of slice i (ex t1 : True x16, False x32, t2 : False x16, True x16, False x16 etc..)
+    hg.accumulate_sequential(tree, (np.arange(n_leaves) // frame_size == i).astype(np.float32), hg.Accumulators.sum) : area calculation taking only leaves from slice i
     t1 :[ 1.  1.  1.  1.  1.  1.  1.  1.  1.  1.  1.  1.  1.  1.  1.  1.  0.  0.
         0.  0.  0.  0.  0.  0.  0.  0.  0.  0.  0.  0.  0.  0.  0.  0.  0.  0.
         0.  0.  0.  0.  0.  0.  0.  0.  0.  0.  0.  0.  0.  1.  1.  2.  1.  3.
         4.  6.  0. 16.]
-    Et on stack ça dans comp
+    And we stack this in comp
     """
     comp = np.stack([
         hg.accumulate_sequential(tree, (np.arange(n_leaves) // frame_size == i).astype(np.float32), hg.Accumulators.sum)
@@ -40,7 +40,7 @@ def compute_STstability_attribute_v2(tree, time_indices):
 
 
 def shapely_to_mask(poly: Polygon, shape):
-    """Convertit un polygone Shapely en masque booléen."""
+    """Converts a Shapely polygon to a boolean mask."""
     if poly.is_empty:
         return np.zeros(shape, dtype=bool)
     x, y = poly.exterior.coords.xy
@@ -51,7 +51,7 @@ def shapely_to_mask(poly: Polygon, shape):
 
 
 def pixelset_to_contained_subtree(tree, mask3d):
-    """Trouve les nœuds de l'arbre entièrement contenus dans le masque 3D."""
+    """Finds tree nodes entirely contained in the 3D mask."""
     return hg.accumulate_and_min_sequential(
         tree,
         np.ones(tree.num_vertices(), dtype=np.uint8),
@@ -61,12 +61,12 @@ def pixelset_to_contained_subtree(tree, mask3d):
 
 
 def extract_related_bins_list(tree, node_to_bin2d, node_list):
-    """Extrait tous les bins associés à une liste de nœuds."""
+    """Extracts all bins associated with a list of nodes."""
     bins_set = set()
     for node_id in node_list:
-        # Obtenir le sous-arbre du nœud
+        # Get the subtree of the node
         _, node_map = tree.sub_tree(node_id)
-        # Ajouter tous les bins associés aux nœuds du sous-arbre
+        # Add all bins associated with nodes in the subtree
         for n in node_map:
             if n in node_to_bin2d:
                 bins_set.add(node_to_bin2d[n])
@@ -75,13 +75,13 @@ def extract_related_bins_list(tree, node_to_bin2d, node_list):
 
 def compute_2d_ps_with_tracking(tree, altitudes, attr1, attr2, bins1, bins2):
     """
-    Calcule un pattern spectra 2D avec suivi des contributions des nœuds.
+    Computes a 2D pattern spectra with node contribution tracking.
     
     Args:
-        tree: Arbre de composantes
-        altitudes: Altitudes des nœuds
-        attr1, attr2: Attributs pour les deux dimensions
-        bins1, bins2: Bins pour l'histogramme 2D
+        tree: Component tree
+        altitudes: Node altitudes
+        attr1, attr2: Attributes for the two dimensions
+        bins1, bins2: Bins for the 2D histogram
     
     Returns:
         tuple: (tree, hist2d, bins1, bins2, node_to_bin2d, bin_contributions)
@@ -89,12 +89,12 @@ def compute_2d_ps_with_tracking(tree, altitudes, attr1, attr2, bins1, bins2):
     area = hg.attribute_area(tree)
     vol_nodes = area * np.abs(altitudes - altitudes[tree.parents()])
 
-    # Histogramme 2D
+    # 2D Histogram
     hist2d, _, _ = np.histogram2d(attr1, attr2, bins=[bins1, bins2], weights=vol_nodes)
     if hist2d.sum() > 0:
         hist2d /= hist2d.sum()
 
-    # Calcul des indices de bin pour chaque nœud
+    # Calculate bin indices for each node
     bin_idx_1 = np.digitize(attr1, bins1, right=False) - 1
     bin_idx_2 = np.digitize(attr2, bins2, right=False) - 1
 
@@ -103,7 +103,7 @@ def compute_2d_ps_with_tracking(tree, altitudes, attr1, attr2, bins1, bins2):
         if 0 <= i < len(bins1) - 1 and 0 <= j < len(bins2) - 1:
             node_to_bin2d[node] = (i, j)
 
-    # Contributions des nœuds aux bins
+    # Node contributions to bins
     bin_contributions = {}
     for n in range(tree.num_vertices()):
         i, j = node_to_bin2d.get(n, (None, None))
@@ -118,29 +118,29 @@ def compute_2d_ps_with_tracking(tree, altitudes, attr1, attr2, bins1, bins2):
 
 def compute_global_ps(cube):
     """
-    Calcule le pattern spectra global pour une séquence d'images 3D.
+    Computes the global pattern spectra for a 3D image sequence.
     
     Args:
-        cube: Séquence d'images 3D (T, H, W)
+        cube: 3D image sequence (T, H, W)
     
     Returns:
-        dict: Dictionnaire contenant tous les résultats du calcul PS
+        dict: Dictionary containing all PS calculation results
     """
     cube = cube.astype(np.uint8)
     
-    # Construction de l'arbre 3D
+    # Build 3D tree
     tree, altitudes = hg.component_tree_tree_of_shapes_image3d(cube)
     altitudes = altitudes.astype(np.float32)
     
-    # Calcul des attributs
+    # Calculate attributes
     area = hg.attribute_area(tree)
     stability = compute_STstability_attribute_v2(tree, [1, 2, 3, 4, 5])
     
-    # Bins fixes pour la cohérence
-    bins1 = np.logspace(0, 7, 100)  # Area (échelle log)
-    bins2 = np.linspace(0, 1, 100)  # Stability (échelle linéaire)
+    # Fixed bins for consistency
+    bins1 = np.logspace(0, 7, 100)  # Area (log scale)
+    bins2 = np.linspace(0, 1, 100)  # Stability (linear scale)
     
-    # Calcul du PS avec suivi
+    # Calculate PS with tracking
     tree, hist2d, bins1, bins2, node_to_bin2d, bin_contributions = compute_2d_ps_with_tracking(
         tree, altitudes, area, stability, bins1, bins2
     )
@@ -160,12 +160,12 @@ def compute_global_ps(cube):
 
 def compute_local_ps_highlight(ps_data, polygon, cube_shape):
     """
-    Calcule les bins à mettre en surbrillance pour un polygone donné.
+    Calculates the bins to highlight for a given polygon.
     
     Args:
-        ps_data: Données du PS global (retour de compute_global_ps)
-        polygon: Polygone Shapely
-        cube_shape: Forme du cube (T, H, W)
+        ps_data: Global PS data (return from compute_global_ps)
+        polygon: Shapely polygon
+        cube_shape: Cube shape (T, H, W)
     
     Returns:
         tuple: (highlight_bins, contained_nodes)
@@ -173,15 +173,15 @@ def compute_local_ps_highlight(ps_data, polygon, cube_shape):
     tree = ps_data['tree']
     node_to_bin2d = ps_data['node_to_bin2d']
     
-    # Masque 3D du polygone
+    # 3D polygon mask
     mask3d = np.stack([shapely_to_mask(polygon, cube_shape[1:]) for _ in range(cube_shape[0])])
     
-    # Nœuds contenus dans le polygone
+    # Nodes contained in the polygon
     node_mask = pixelset_to_contained_subtree(tree, mask3d)
     contained_nodes = np.where(node_mask)[0]
     contained_nodes = [n for n in contained_nodes if n >= tree.num_leaves()]
     
-    # Bins associés
+    # Associated bins
     highlight_bins = extract_related_bins_list(tree, node_to_bin2d, contained_nodes)
     
     return highlight_bins, contained_nodes
@@ -189,28 +189,28 @@ def compute_local_ps_highlight(ps_data, polygon, cube_shape):
 
 def plot_ps_with_highlights(ax, ps_data, highlight_bins=None, contained_nodes=None):
     """
-    Affiche le pattern spectra avec mise en surbrillance optionnelle.
+    Displays the pattern spectra with optional highlighting.
     
     Args:
-        ax: Axes matplotlib
-        ps_data: Données du PS global
-        highlight_bins: Bins à mettre en surbrillance (optionnel)
-        contained_nodes: Nœuds sélectionnés (optionnel)
+        ax: Matplotlib axes
+        ps_data: Global PS data
+        highlight_bins: Bins to highlight (optional)
+        contained_nodes: Selected nodes (optional)
     
     Returns:
-        matplotlib.collections.QuadMesh: L'objet mesh pour la colorbar
+        matplotlib.collections.QuadMesh: The mesh object for the colorbar
     """
     hist2d = ps_data['hist2d']
     bins1 = ps_data['bins1']
     bins2 = ps_data['bins2']
     bin_contributions = ps_data['bin_contributions']
     
-    # Affichage du PS global en arrière-plan
+    # Display global PS in background
     cmap = cm.get_cmap('viridis')
     norm_bg = LogNorm(vmin=hist2d[hist2d > 0].min(), vmax=hist2d.max())
     pcm = ax.pcolormesh(bins1, bins2, hist2d.T, norm=norm_bg, cmap=cmap, shading='auto', alpha=0.3)
     
-    # Mise en surbrillance des bins sélectionnés
+    # Highlight selected bins
     if highlight_bins and contained_nodes:
         hist_mask = np.zeros_like(hist2d)
         selected_set = set(contained_nodes)
@@ -226,7 +226,7 @@ def plot_ps_with_highlights(ax, ps_data, highlight_bins=None, contained_nodes=No
             pcm_highlight = ax.pcolormesh(bins1, bins2, hist_mask.T, norm=norm_fg,
                                         cmap=cm.get_cmap('coolwarm'), shading='auto', alpha=0.9)
     
-    # Configuration des axes
+    # Axis configuration
     ax.set_xscale('log')
     ax.set_yscale('linear')
     ax.set_xlabel('Area (log scale)')
@@ -239,21 +239,21 @@ def plot_ps_with_highlights(ax, ps_data, highlight_bins=None, contained_nodes=No
 
 def compute_nodes_from_bins(ps_data, selected_bins):
     """
-    Calcule les nœuds correspondant aux bins sélectionnés dans le PS.
+    Calculates the nodes corresponding to selected bins in the PS.
     
     Args:
-        ps_data: Données du PS global
-        selected_bins: Set de tuples (i, j) représentant les bins sélectionnés
+        ps_data: Global PS data
+        selected_bins: Set of tuples (i, j) representing selected bins
     
     Returns:
-        list: Liste des nœuds correspondant aux bins sélectionnés
+        list: List of nodes corresponding to selected bins
     """
     bin_contributions = ps_data['bin_contributions']
     selected_nodes = set()
     
     for bin_coord in selected_bins:
         if bin_coord in bin_contributions:
-            # Ajouter tous les nœuds qui contribuent à ce bin
+            # Add all nodes that contribute to this bin
             for node_id, _ in bin_contributions[bin_coord]:
                 selected_nodes.add(node_id)
     
@@ -262,35 +262,35 @@ def compute_nodes_from_bins(ps_data, selected_bins):
 
 def compute_node_masks_per_timestep_optimized(ps_data, selected_nodes, cube_shape):
     """
-    Version optimisée du calcul des masques de nœuds pour chaque timestep.
-    Utilise un cache et évite la récursion.
+    Optimized version of node mask calculation for each timestep.
+    Uses cache and avoids recursion.
     
     Args:
-        ps_data: Données du PS global
-        selected_nodes: Liste des nœuds sélectionnés
-        cube_shape: Forme du cube (T, H, W)
+        ps_data: Global PS data
+        selected_nodes: List of selected nodes
+        cube_shape: Cube shape (T, H, W)
     
     Returns:
-        list: Liste de masques booléens pour chaque timestep
+        list: List of boolean masks for each timestep
     """
     tree = ps_data['tree']
     T, H, W = cube_shape
     n_leaves = tree.num_leaves()
     frame_size = n_leaves // T
     
-    # Cache pour les feuilles de chaque nœud (éviter la récursion répétée)
+    # Cache for leaves of each node (avoid repeated recursion)
     if not hasattr(tree, '_leaves_cache'):
         tree._leaves_cache = {}
     
     def get_leaves_cached(node):
-        """Version optimisée avec cache pour obtenir les feuilles d'un nœud."""
+        """Optimized version with cache to get leaves of a node."""
         if node in tree._leaves_cache:
             return tree._leaves_cache[node]
             
         if node < tree.num_leaves():
             leaves = [node]
         else:
-            # Utiliser une pile au lieu de récursion
+            # Use stack instead of recursion
             stack = [node]
             leaves = []
             while stack:
@@ -304,30 +304,30 @@ def compute_node_masks_per_timestep_optimized(ps_data, selected_nodes, cube_shap
         tree._leaves_cache[node] = leaves
         return leaves
     
-    # Pré-calculer toutes les feuilles pour tous les nœuds sélectionnés
+    # Pre-calculate all leaves for all selected nodes
     all_affected_leaves = set()
     for node in selected_nodes:
         leaves = get_leaves_cached(node)
         all_affected_leaves.update(leaves)
     
-    # Créer les masques plus efficacement
+    # Create masks more efficiently
     masks_per_timestep = []
     for t in range(T):
         start_leaf = t * frame_size
         end_leaf = (t + 1) * frame_size
         
-        # Filtrer les feuilles pour ce timestep
+        # Filter leaves for this timestep
         timestep_leaves = [leaf for leaf in all_affected_leaves 
                           if start_leaf <= leaf < end_leaf]
         
-        # Créer le masque directement
+        # Create the mask directly
         mask_2d = np.zeros((H, W), dtype=bool)
         if timestep_leaves:
-            # Conversion vectorisée
+            # Vectorized conversion
             local_indices = np.array(timestep_leaves) - start_leaf
             y_coords, x_coords = np.divmod(local_indices, W)
             
-            # Filtrer les coordonnées valides
+            # Filter valid coordinates
             valid_mask = (y_coords >= 0) & (y_coords < H) & (x_coords >= 0) & (x_coords < W)
             y_coords = y_coords[valid_mask]
             x_coords = x_coords[valid_mask]
@@ -341,31 +341,31 @@ def compute_node_masks_per_timestep_optimized(ps_data, selected_nodes, cube_shap
 
 
 def compute_node_masks_per_timestep(ps_data, selected_nodes, cube_shape):
-    """Wrapper pour la compatibilité - utilise la version optimisée."""
+    """Wrapper for compatibility - uses the optimized version."""
     return compute_node_masks_per_timestep_optimized(ps_data, selected_nodes, cube_shape)
 
 
 def get_bin_coordinates_from_point(ps_data, x_coord, y_coord):
     """
-    Convertit les coordonnées continues en indices de bins.
+    Converts continuous coordinates to bin indices.
     
     Args:
-        ps_data: Données du PS global
-        x_coord: Coordonnée X (area, échelle log)
-        y_coord: Coordonnée Y (stability, échelle linéaire)
+        ps_data: Global PS data
+        x_coord: X coordinate (area, log scale)
+        y_coord: Y coordinate (stability, linear scale)
     
     Returns:
-        tuple: (i, j) indices du bin, ou None si hors limites
+        tuple: (i, j) bin indices, or None if out of bounds
     """
     bins1 = ps_data['bins1']  # Area (log scale)
     bins2 = ps_data['bins2']  # Stability (linear scale)
     
-    # Trouver l'index du bin pour area (échelle log)
+    # Find bin index for area (log scale)
     i = np.digitize(x_coord, bins1, right=False) - 1
-    # Trouver l'index du bin pour stability (échelle linéaire)
+    # Find bin index for stability (linear scale)
     j = np.digitize(y_coord, bins2, right=False) - 1
     
-    # Vérifier que les indices sont valides
+    # Check that indices are valid
     if 0 <= i < len(bins1) - 1 and 0 <= j < len(bins2) - 1:
         return (i, j)
     return None
@@ -373,18 +373,18 @@ def get_bin_coordinates_from_point(ps_data, x_coord, y_coord):
 
 def get_bins_in_polygon_selection(ps_data, polygon_coords):
     """
-    Trouve tous les bins contenus dans un polygone de sélection sur le PS.
+    Finds all bins contained in a selection polygon on the PS.
     
     Args:
-        ps_data: Données du PS global
-        polygon_coords: Liste de tuples (x, y) définissant le polygone
+        ps_data: Global PS data
+        polygon_coords: List of tuples (x, y) defining the polygon
     
     Returns:
-        set: Set de tuples (i, j) représentant les bins sélectionnés
+        set: Set of tuples (i, j) representing selected bins
     """
     from shapely.geometry import Polygon, Point
     
-    # Créer le polygone de sélection
+    # Create the selection polygon
     selection_poly = Polygon(polygon_coords)
     
     bins1 = ps_data['bins1']
@@ -393,15 +393,15 @@ def get_bins_in_polygon_selection(ps_data, polygon_coords):
     
     selected_bins = set()
     
-    # Parcourir tous les bins et vérifier s'ils sont dans le polygone
+    # Go through all bins and check if they are in the polygon
     for i in range(len(bins1) - 1):
         for j in range(len(bins2) - 1):
-            if hist2d[i, j] > 0:  # Seulement les bins non vides
-                # Centre du bin
+            if hist2d[i, j] > 0:  # Only non-empty bins
+                # Bin center
                 x_center = (bins1[i] + bins1[i + 1]) / 2
                 y_center = (bins2[j] + bins2[j + 1]) / 2
                 
-                # Vérifier si le centre est dans le polygone
+                # Check if the center is in the polygon
                 if selection_poly.contains(Point(x_center, y_center)):
                     selected_bins.add((i, j))
     

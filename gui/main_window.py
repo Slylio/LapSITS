@@ -10,26 +10,26 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("SITS + Pattern Spectra")
-        self.setGeometry(100, 100, 1400, 800)  # Fenêtre plus large pour le PS
+        self.setGeometry(100, 100, 1400, 800)  # Larger window for PS
 
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
 
-        # Données du pattern spectra
+        # Pattern spectra data
         self.ps_data = None
         self.current_polygon = None
-        self.current_selected_nodes = []  # Nœuds sélectionnés depuis le PS
+        self.current_selected_nodes = []  # Nodes selected from PS
         
         self.setup_ui()
         self.setup_connections()
         self.compute_initial_ps()
 
     def setup_ui(self):
-        """Configuration de l'interface utilisateur."""
-        # Splitter horizontal pour diviser image et PS
+        """User interface configuration."""
+        # Horizontal splitter to divide image and PS
         main_splitter = QSplitter(Qt.Horizontal)
         
-        # Partie gauche : Image et contrôles
+        # Left part: Image and controls
         left_widget = QWidget()
         left_layout = QVBoxLayout()
         
@@ -37,7 +37,7 @@ class MainWindow(QMainWindow):
         self.canvas_view.setMinimumWidth(400)
         self.canvas_view.setMinimumHeight(400)
         
-        # Connecter la sélection de polygone
+        # Connect polygon selection
         self.canvas_view.polygon_selected.connect(self.on_polygon_selected)
         
         self.slider = QSlider(Qt.Horizontal)
@@ -45,28 +45,28 @@ class MainWindow(QMainWindow):
         self.slider.setMaximum(len(self.canvas_view.sequence) - 1)
         self.slider.valueChanged.connect(self.on_slider_changed)
         
-        # Boutons de contrôle
+        # Control buttons
         controls_layout = QHBoxLayout()
-        self.btn_compute_ps = QPushButton("Recalculer PS")
+        self.btn_compute_ps = QPushButton("Recalculate PS")
         self.btn_compute_ps.clicked.connect(self.compute_initial_ps)
-        self.btn_clear_selection = QPushButton("Effacer sélection")
+        self.btn_clear_selection = QPushButton("Clear selection")
         self.btn_clear_selection.clicked.connect(self.clear_all_selections)
         
-        # Boutons radio pour le mode de sélection PS
+        # Radio buttons for PS selection mode
         self.ps_mode_group = QButtonGroup()
-        self.radio_click = QRadioButton("Clic")
-        self.radio_polygon = QRadioButton("Polygone")
+        self.radio_click = QRadioButton("Click")
+        self.radio_polygon = QRadioButton("Polygon")
         self.radio_click.setChecked(True)
         self.ps_mode_group.addButton(self.radio_click, 0)
         self.ps_mode_group.addButton(self.radio_polygon, 1)
         
-        # Checkbox pour afficher les nœuds
+        # Checkbox to show nodes
         from PyQt5.QtWidgets import QCheckBox
         self.checkbox_show_nodes = QCheckBox("Show nodes")
         self.checkbox_show_nodes.setChecked(False)
         self.checkbox_show_nodes.stateChanged.connect(self.on_show_nodes_changed)
         
-        controls_layout.addWidget(QLabel("Mode PS:"))
+        controls_layout.addWidget(QLabel("PS Mode:"))
         controls_layout.addWidget(self.radio_click)
         controls_layout.addWidget(self.radio_polygon)
         controls_layout.addWidget(self.checkbox_show_nodes)
@@ -144,24 +144,24 @@ class MainWindow(QMainWindow):
             traceback.print_exc()
 
     def on_slider_changed(self, idx):
-        """Gestionnaire de changement du slider."""
+        """Slider change handler."""
         self.canvas_view.display_index(idx)
         
     def on_ps_mode_changed(self, button):
-        """Change le mode de sélection du PS."""
+        """Changes the PS selection mode."""
         if button == self.radio_click:
             self.ps_canvas.set_selection_mode('click')
         else:
             self.ps_canvas.set_selection_mode('polygon')
             
     def on_bins_selected(self, selected_nodes):
-        """Gestionnaire de sélection de bins dans le PS."""
+        """Handler for bin selection in PS."""
         self.current_selected_nodes = selected_nodes
         
-        # Mettre à jour l'affichage dans l'image
+        # Update display in image
         self.canvas_view.set_selected_nodes(selected_nodes)
         
-        # Mettre à jour le label avec des informations détaillées
+        # Update label with detailed information
         if selected_nodes:
             selection_info = self.ps_canvas.get_selection_info()
             self.ps_label.setText(f"Pattern Spectra - {selection_info}")

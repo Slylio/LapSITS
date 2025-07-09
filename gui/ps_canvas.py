@@ -1,5 +1,5 @@
 """
-Canvas interactif pour l'affichage et la sélection dans le Pattern Spectra.
+Interactive canvas for Pattern Spectra display and selection.
 """
 
 from PyQt5.QtCore import pyqtSignal, QObject
@@ -13,40 +13,40 @@ from core.pattern_spectra import (plot_ps_with_highlights, get_bin_coordinates_f
 
 
 class PSCanvas(FigureCanvas):
-    """Canvas matplotlib interactif pour le Pattern Spectra."""
+    """Interactive matplotlib canvas for Pattern Spectra."""
     
-    # Signal émis quand des bins sont sélectionnés
-    bins_selected = pyqtSignal(object)  # List de nœuds sélectionnés
+    # Signal emitted when bins are selected
+    bins_selected = pyqtSignal(object)  # List of selected nodes
     
     def __init__(self, parent=None):
         self.figure = Figure(figsize=(6, 6))
         super().__init__(self.figure)
         self.setParent(parent)
         
-        # Données du PS
+        # PS data
         self.ps_data = None
         self.current_highlight_bins = None
         self.current_highlight_nodes = None
         
-        # Variables pour la sélection
-        self.selection_mode = 'click'  # 'click' ou 'polygon'
+        # Selection variables
+        self.selection_mode = 'click'  # 'click' or 'polygon'
         self.selected_bins = set()
         self.selected_nodes = []
         
-        # Variables pour la sélection par clic maintenu
+        # Variables for click and hold selection
         self.is_mouse_pressed = False
         self.last_selected_bin = None
         
-        # Variables pour la sélection par polygone
+        # Variables for polygon selection
         self.polygon_points = []
         self.is_drawing_polygon = False
         self.selection_polygon = None
         
-        # Cache pour optimiser le rendu
+        # Cache to optimize rendering
         self.base_plot_cache = None
         self.last_ps_data_hash = None
         
-        # Connecter les événements
+        # Connect events
         self.mpl_connect('button_press_event', self.on_mouse_press)
         self.mpl_connect('button_release_event', self.on_mouse_release)
         self.mpl_connect('key_press_event', self.on_key_press)
@@ -55,12 +55,12 @@ class PSCanvas(FigureCanvas):
         self.ax = None
         
     def set_ps_data(self, ps_data):
-        """Définit les données du pattern spectra."""
+        """Sets the pattern spectra data."""
         self.ps_data = ps_data
         self.clear_selection()
         
     def set_selection_mode(self, mode):
-        """Change le mode de sélection ('click' ou 'polygon')."""
+        """Changes the selection mode ('click' or 'polygon')."""
         self.selection_mode = mode
         self.clear_selection()
         
