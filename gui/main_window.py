@@ -9,7 +9,7 @@ import numpy as np
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("SITS + Pattern Spectra")
+        self.setWindowTitle("LapSITS")
         self.setGeometry(100, 100, 1400, 800)  # Larger window for PS
 
         self.central_widget = QWidget()
@@ -66,10 +66,17 @@ class MainWindow(QMainWindow):
         self.checkbox_show_nodes.setChecked(False)
         self.checkbox_show_nodes.stateChanged.connect(self.on_show_nodes_changed)
         
+        # Checkbox to color nodes with unique colors
+        self.checkbox_color_nodes = QCheckBox("Color nodes")
+        self.checkbox_color_nodes.setChecked(False)
+        self.checkbox_color_nodes.setEnabled(False)  # Disabled by default
+        self.checkbox_color_nodes.stateChanged.connect(self.on_color_nodes_changed)
+        
         controls_layout.addWidget(QLabel("PS Mode:"))
         controls_layout.addWidget(self.radio_click)
         controls_layout.addWidget(self.radio_polygon)
         controls_layout.addWidget(self.checkbox_show_nodes)
+        controls_layout.addWidget(self.checkbox_color_nodes)
         controls_layout.addWidget(self.btn_compute_ps)
         controls_layout.addWidget(self.btn_clear_selection)
         controls_layout.addStretch()
@@ -158,8 +165,11 @@ class MainWindow(QMainWindow):
         """Handler for bin selection in PS."""
         self.current_selected_nodes = selected_nodes
         
-        # Update display in image
-        self.canvas_view.set_selected_nodes(selected_nodes)
+        # Automatically respect the "Show nodes" option
+        if self.checkbox_show_nodes.isChecked():
+            self.canvas_view.set_selected_nodes(selected_nodes)
+        else:
+            self.canvas_view.set_selected_nodes([])
         
         # Update label with detailed information
         if selected_nodes:
@@ -169,27 +179,36 @@ class MainWindow(QMainWindow):
             self.ps_label.setText("Pattern Spectra Global")
 
     def on_polygon_selected(self, polygon):
-        """Gestionnaire de sélection de polygone."""
+        """Polygon selection handler."""
         try:
             self.current_polygon = polygon
             
             if self.ps_data is None:
                 return
                 
-            # Calculer les bins à mettre en surbrillance
+            # Calculate bins to highlight
             cube_shape = np.array(self.canvas_view.sequence).shape
             highlight_bins, contained_nodes = compute_local_ps_highlight(
                 self.ps_data, polygon, cube_shape
             )
             
-            # Mettre à jour l'affichage du PS avec surbrillance
+            # Update PS display with highlighting
             self.ps_canvas.update_display(highlight_bins, contained_nodes)
             
-            # Mettre à jour le label
-            self.ps_label.setText(f"Pattern Spectra - {len(contained_nodes)} nœuds sélectionnés (Image)")
+            # Automatically show nodes if the option is enabled
+            if self.checkbox_show_nodes.isChecked():
+                self.canvas_view.set_selected_nodes(contained_nodes)
+                status_text = f"Pattern Spectra - {len(contained_nodes)} nodes selected (Image + Nodes)"
+            else:
+                # Clear nodes display if option is disabled
+                self.canvas_view.set_selected_nodes([])
+                status_text = f"Pattern Spectra - {len(contained_nodes)} nodes selected (Image)"
+            
+            # Update label
+            self.ps_label.setText(status_text)
             
         except Exception as e:
-            print(f"Erreur lors de la sélection: {e}")
+            print(f"Selection error: {e}")
             import traceback
             traceback.print_exc()
 
@@ -212,34 +231,36 @@ class MainWindow(QMainWindow):
         self.ps_label.setText("Pattern Spectra Global")
 
     def on_show_nodes_changed(self, state):
-        """Gestionnaire de changement de l'option Show nodes."""
-        # Si l'option est activée et qu'il y a une sélection de polygone active
-        if state == Qt.Checked and self.current_polygon is not None:
-            # Réappliquer la sélection de polygone pour afficher les nœuds
-            self.apply_polygon_selection_with_nodes()
-        elif state == Qt.Unchecked:
-            # Masquer les nœuds dans l'image
-            self.canvas_view.set_selected_nodes([])
-            
-    def apply_polygon_selection_with_nodes(self):
-        """Applique la sélection de polygone avec affichage des nœuds si l'option est activée."""
-        if self.current_polygon is None or self.ps_data is None:
-            return
-            
-        # Calculer les bins à mettre en surbrillance
-        cube_shape = np.array(self.canvas_view.sequence).shape
-        highlight_bins, contained_nodes = compute_local_ps_highlight(
-            self.ps_data, self.current_polygon, cube_shape
-        )
-        
-        # Mettre à jour l'affichage du PS avec surbrillance
-        self.ps_canvas.update_display(highlight_bins, contained_nodes)
-        
-        # Si l'option "Show nodes" est activée, afficher les nœuds dans l'image
-        if self.checkbox_show_nodes.isChecked():
-            self.canvas_view.set_selected_nodes(contained_nodes)
-            status_text = f"Pattern Spectra - {len(contained_nodes)} nœuds sélectionnés (Image + Nodes)"
+        """Handler for Show nodes option change."""
+        # Enable/disable the color nodes checkbox based on show nodes state
+        if state == Qt.Checked:
+            self.checkbox_color_nodes.setEnabled(True)
         else:
-            status_text = f"Pattern Spectra - {len(contained_nodes)} nœuds sélectionnés (Image)"
+            self.checkbox_color_nodes.setEnabled(False)
+            self.checkbox_color_nodes.setChecked(False)  # Uncheck when disabled
             
-        self.ps_label.setText(status_text)
+        # If there's an active polygon selection, update immediately
+        if self.current_polygon is not None:
+            # Re-trigger the polygon selection to respect the new state
+            self.on_polygon_selected(self.current_polygon)
+        # If there's an active PS bin selection, update immediately
+        elif self.current_selected_nodes:
+            if state == Qt.Checked:
+                self.canvas_view.set_selected_nodes(self.current_selected_nodes)
+            else:
+                self.canvas_view.set_selected_nodes([])
+
+    def on_color_nodes_changed(self, state):
+        """Handler for Color nodes option change."""
+        # Update the canvas view with the color mode preference
+        use_unique_colors = state == Qt.Checked
+        self.canvas_view.set_color_nodes_mode(use_unique_colors)
+        
+        # If there's an active node selection, refresh the display
+        if self.checkbox_show_nodes.isChecked() and (self.current_polygon is not None or self.current_selected_nodes):
+            if self.current_polygon is not None:
+                # Re-trigger polygon selection to update colors
+                self.on_polygon_selected(self.current_polygon)
+            elif self.current_selected_nodes:
+                # Re-apply node selection with new color mode
+                self.canvas_view.set_selected_nodes(self.current_selected_nodes)

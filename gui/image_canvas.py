@@ -38,6 +38,8 @@ class ImageCanvas(QGraphicsView):
         self.node_overlays = []  # Overlays for selected nodes
         self.cached_masks = None  # Cache des masques calculés
         self.last_nodes_hash = None  # Hash des derniers nœuds pour détecter les changements
+        self.use_unique_colors = False  # Flag to enable unique colors for nodes
+        self.cached_colored_masks = None  # Cache des masques colorés
         
         self.load_fixed_sequence()
 
@@ -220,6 +222,16 @@ class ImageCanvas(QGraphicsView):
         """Sets the pattern spectra data for node display."""
         self.ps_data = ps_data
         
+    def set_color_nodes_mode(self, use_unique_colors):
+        """Sets whether to use unique colors for each node."""
+        if self.use_unique_colors != use_unique_colors:
+            self.use_unique_colors = use_unique_colors
+            # Invalidate colored masks cache when mode changes
+            self.cached_colored_masks = None
+            # Update display if there are selected nodes
+            if self.selected_nodes:
+                self.update_node_overlays()
+        
     def set_selected_nodes(self, selected_nodes):
         """Sets the selected nodes to display in highlight."""
         self.selected_nodes = selected_nodes
@@ -228,6 +240,7 @@ class ImageCanvas(QGraphicsView):
         nodes_hash = hash(tuple(sorted(selected_nodes))) if selected_nodes else None
         if nodes_hash != self.last_nodes_hash:
             self.cached_masks = None
+            self.cached_colored_masks = None  # Also invalidate colored cache
             self.last_nodes_hash = nodes_hash
             
         self.update_node_overlays()
@@ -242,18 +255,50 @@ class ImageCanvas(QGraphicsView):
         if not self.selected_nodes or not self.ps_data or not self.sequence:
             return
         
-        # Calculate masks only if necessary (with cache)
-        if self.cached_masks is None:
-            from core.pattern_spectra import compute_node_masks_per_timestep_optimized
-            cube_shape = (len(self.sequence), self.sequence[0].shape[0], self.sequence[0].shape[1])
-            self.cached_masks = compute_node_masks_per_timestep_optimized(
-                self.ps_data, self.selected_nodes, cube_shape
-            )
+        if self.use_unique_colors:
+            # Use unique colors for each node
+            if self.cached_colored_masks is None:
+                from core.pattern_spectra import compute_node_masks_per_timestep_with_colors
+                cube_shape = (len(self.sequence), self.sequence[0].shape[0], self.sequence[0].shape[1])
+                # Call with use_unique_colors=True to get colored overlays
+                _, self.cached_colored_masks = compute_node_masks_per_timestep_with_colors(
+                    self.ps_data, self.selected_nodes, cube_shape, use_unique_colors=True
+                )
+            
+            # Display colored overlay for current index
+            if self.current_index < len(self.cached_colored_masks):
+                colored_overlay = self.cached_colored_masks[self.current_index]
+                self.add_colored_overlay(colored_overlay)
+        else:
+            # Use single color (red) for all nodes
+            if self.cached_masks is None:
+                from core.pattern_spectra import compute_node_masks_per_timestep_optimized
+                cube_shape = (len(self.sequence), self.sequence[0].shape[0], self.sequence[0].shape[1])
+                self.cached_masks = compute_node_masks_per_timestep_optimized(
+                    self.ps_data, self.selected_nodes, cube_shape
+                )
+            
+            # Display mask for current index
+            if self.current_index < len(self.cached_masks):
+                mask = self.cached_masks[self.current_index]
+                self.add_mask_overlay_optimized(mask)
+            
+    def add_colored_overlay(self, colored_overlay):
+        """Add a colored overlay with unique colors for each node."""
+        if colored_overlay is None:
+            return
+            
+        h, w = colored_overlay.shape[:2]
         
-        # Display mask for current index
-        if self.current_index < len(self.cached_masks):
-            mask = self.cached_masks[self.current_index]
-            self.add_mask_overlay_optimized(mask)
+        # colored_overlay should be an RGBA image (h, w, 4)
+        # Convert to QImage format
+        qimg = QImage(colored_overlay.data, w, h, w * 4, QImage.Format_RGBA8888)
+        overlay_pixmap = QPixmap.fromImage(qimg)
+        
+        # Add to scene
+        overlay_item = self.scene.addPixmap(overlay_pixmap)
+        overlay_item.setZValue(1)  # Above the main image
+        self.node_overlays.append(overlay_item)
             
     def add_mask_overlay_optimized(self, mask):
         """Optimized version to add a colored overlay."""

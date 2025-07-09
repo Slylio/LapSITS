@@ -406,3 +406,168 @@ def get_bins_in_polygon_selection(ps_data, polygon_coords):
                     selected_bins.add((i, j))
     
     return selected_bins
+
+
+def generate_unique_colors(num_colors):
+    """
+    Generates unique colors for visualizing different nodes.
+    
+    Args:
+        num_colors: Number of unique colors needed
+    
+    Returns:
+        list: List of RGBA tuples for each node
+    """
+    import matplotlib.cm as cm
+    import matplotlib.colors as mcolors
+    
+    if num_colors == 0:
+        return []
+    
+    # Use a colormap that provides good contrast
+    if num_colors <= 10:
+        # For small numbers, use qualitative colors
+        colors = cm.tab10(np.linspace(0, 1, min(num_colors, 10)))
+    elif num_colors <= 20:
+        # For medium numbers, use tab20
+        colors = cm.tab20(np.linspace(0, 1, min(num_colors, 20)))
+    else:
+        # For large numbers, use hsv for maximum differentiation
+        colors = cm.hsv(np.linspace(0, 1, num_colors))
+    
+    # Convert to RGBA with good alpha for visibility
+    rgba_colors = []
+    for color in colors:
+        rgba = list(color)
+        rgba[3] = 0.7  # Set alpha to 0.7 for good visibility
+        rgba_colors.append(tuple(int(c * 255) for c in rgba))
+    
+    return rgba_colors
+
+
+def compute_node_masks_per_timestep_with_colors(ps_data, selected_nodes, cube_shape, use_unique_colors=False):
+    """
+    Optimized version of node mask calculation with optional unique colors per node.
+    
+    Args:
+        ps_data: Global PS data
+        selected_nodes: List of selected nodes
+        cube_shape: Cube shape (T, H, W)
+        use_unique_colors: If True, assign unique colors to each node
+    
+    Returns:
+        tuple: (masks_per_timestep, colors_per_timestep) if use_unique_colors=True
+               or just masks_per_timestep if use_unique_colors=False
+    """
+    tree = ps_data['tree']
+    T, H, W = cube_shape
+    n_leaves = tree.num_leaves()
+    frame_size = n_leaves // T
+    
+    # Cache for leaves of each node
+    if not hasattr(tree, '_leaves_cache'):
+        tree._leaves_cache = {}
+    
+    def get_leaves_cached(node):
+        """Optimized version with cache to get leaves of a node."""
+        if node in tree._leaves_cache:
+            return tree._leaves_cache[node]
+            
+        if node < tree.num_leaves():
+            leaves = [node]
+        else:
+            # Use stack instead of recursion
+            stack = [node]
+            leaves = []
+            while stack:
+                current = stack.pop()
+                if current < tree.num_leaves():
+                    leaves.append(current)
+                else:
+                    children = tree.children(current)
+                    stack.extend(children)
+        
+        tree._leaves_cache[node] = leaves
+        return leaves
+    
+    # Generate unique colors if requested
+    unique_colors = None
+    if use_unique_colors:
+        unique_colors = generate_unique_colors(len(selected_nodes))
+        # Create a mapping from node to color
+        node_to_color = {node: unique_colors[i] for i, node in enumerate(selected_nodes)}
+    
+    # Pre-calculate leaves for each node
+    node_leaves = {}
+    for node in selected_nodes:
+        node_leaves[node] = get_leaves_cached(node)
+    
+    # Create masks and color maps for each timestep
+    masks_per_timestep = []
+    colors_per_timestep = [] if use_unique_colors else None
+    
+    for t in range(T):
+        start_leaf = t * frame_size
+        end_leaf = (t + 1) * frame_size
+        
+        if use_unique_colors:
+            # Create a color map for this timestep
+            color_map = np.zeros((H, W, 4), dtype=np.uint8)
+            mask_2d = np.zeros((H, W), dtype=bool)
+            
+            for node in selected_nodes:
+                # Get leaves for this node in this timestep
+                timestep_leaves = [leaf for leaf in node_leaves[node] 
+                                 if start_leaf <= leaf < end_leaf]
+                
+                if timestep_leaves:
+                    # Convert to 2D coordinates
+                    local_indices = np.array(timestep_leaves) - start_leaf
+                    y_coords, x_coords = np.divmod(local_indices, W)
+                    
+                    # Filter valid coordinates
+                    valid_mask = (y_coords >= 0) & (y_coords < H) & (x_coords >= 0) & (x_coords < W)
+                    y_coords = y_coords[valid_mask]
+                    x_coords = x_coords[valid_mask]
+                    
+                    if len(y_coords) > 0:
+                        # Set the unique color for this node
+                        color = node_to_color[node]
+                        color_map[y_coords, x_coords] = color
+                        mask_2d[y_coords, x_coords] = True
+            
+            colors_per_timestep.append(color_map)
+            masks_per_timestep.append(mask_2d)
+            
+        else:
+            # Original single-color implementation
+            all_affected_leaves = set()
+            for node in selected_nodes:
+                leaves = node_leaves[node]
+                all_affected_leaves.update(leaves)
+            
+            # Filter leaves for this timestep
+            timestep_leaves = [leaf for leaf in all_affected_leaves 
+                              if start_leaf <= leaf < end_leaf]
+            
+            # Create the mask directly
+            mask_2d = np.zeros((H, W), dtype=bool)
+            if timestep_leaves:
+                # Vectorized conversion
+                local_indices = np.array(timestep_leaves) - start_leaf
+                y_coords, x_coords = np.divmod(local_indices, W)
+                
+                # Filter valid coordinates
+                valid_mask = (y_coords >= 0) & (y_coords < H) & (x_coords >= 0) & (x_coords < W)
+                y_coords = y_coords[valid_mask]
+                x_coords = x_coords[valid_mask]
+                
+                if len(y_coords) > 0:
+                    mask_2d[y_coords, x_coords] = True
+            
+            masks_per_timestep.append(mask_2d)
+    
+    if use_unique_colors:
+        return masks_per_timestep, colors_per_timestep
+    else:
+        return masks_per_timestep
