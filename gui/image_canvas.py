@@ -54,6 +54,23 @@ class ImageCanvas(QGraphicsView):
 
         self.display_index(0)
 
+    def load_custom_sequence(self, image_sequence):
+        """Load a custom sequence of images."""
+        self.sequence = image_sequence
+        self.current_index = 0
+        
+        # Clear any existing overlays
+        for overlay in self.node_overlays:
+            self.scene.removeItem(overlay)
+        self.node_overlays.clear()
+        
+        # Reset cached data
+        self.cached_masks = None
+        self.cached_colored_masks = None
+        
+        # Display the first image
+        self.display_index(0)
+
     def display_index(self, idx):
         if not self.sequence:
             return

@@ -2,7 +2,7 @@
 Interactive canvas for Pattern Spectra display and selection.
 """
 
-from PyQt5.QtCore import pyqtSignal, QObject
+from PyQt5.QtCore import pyqtSignal, QObject, Qt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from matplotlib.patches import Polygon as MplPolygon
@@ -29,7 +29,7 @@ class PSCanvas(FigureCanvas):
         self.current_highlight_nodes = None
         
         # Selection variables
-        self.selection_mode = 'click'  # 'click' or 'polygon'
+        self.selection_mode = 'click'  # 'click' or 'polygon' 
         self.selected_bins = set()
         self.selected_nodes = []
         
@@ -51,6 +51,10 @@ class PSCanvas(FigureCanvas):
         self.mpl_connect('button_release_event', self.on_mouse_release)
         self.mpl_connect('key_press_event', self.on_key_press)
         self.mpl_connect('motion_notify_event', self.on_mouse_move)
+        self.mpl_connect('scroll_event', self.on_scroll)
+        
+        # Enable navigation toolbar functionality
+        self.setFocusPolicy(Qt.StrongFocus)
         
         self.ax = None
         
@@ -161,6 +165,54 @@ class PSCanvas(FigureCanvas):
             self.set_selection_mode('click')
         elif event.key == 'p':
             self.set_selection_mode('polygon')
+        elif event.key == 'r':
+            self.reset_zoom()
+            
+    def on_scroll(self, event):
+        """Handle mouse scroll for zoom functionality."""
+        if event.inaxes != self.ax or self.ps_data is None:
+            return
+            
+        # Get current axis limits
+        xlim = self.ax.get_xlim()
+        ylim = self.ax.get_ylim()
+        
+        # Calculate zoom factor
+        zoom_factor = 1.1 if event.step > 0 else 1.0 / 1.1
+        
+        # Calculate new limits centered on mouse position
+        x_center = event.xdata
+        y_center = event.ydata
+        
+        # Calculate new ranges
+        x_range = (xlim[1] - xlim[0]) * zoom_factor
+        y_range = (ylim[1] - ylim[0]) * zoom_factor
+        
+        # Calculate new limits
+        new_xlim = [x_center - x_range/2, x_center + x_range/2]
+        new_ylim = [y_center - y_range/2, y_center + y_range/2]
+        
+        # Apply limits
+        self.ax.set_xlim(new_xlim)
+        self.ax.set_ylim(new_ylim)
+        
+        # Redraw
+        self.draw()
+        
+    def reset_zoom(self):
+        """Reset zoom to show full pattern spectra."""
+        if self.ps_data is None or self.ax is None:
+            return
+            
+        bins1 = self.ps_data['bins1']
+        bins2 = self.ps_data['bins2']
+        
+        # Set limits to show full data
+        self.ax.set_xlim(bins1[0], bins1[-1])
+        self.ax.set_ylim(bins2[0], bins2[-1])
+        
+        # Redraw
+        self.draw()
             
     def on_mouse_move(self, event):
         """Gestionnaire de mouvement de souris pour afficher des informations et sélection par glissement."""

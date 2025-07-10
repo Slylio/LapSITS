@@ -1,0 +1,6 @@
+PyQt5>=5.15.0
+numpy>=1.20.0
+scikit-image>=0.18.0
+matplotlib>=3.3.0
+shapely>=1.7.0
+higra>=0.7.0

@@ -1,10 +1,16 @@
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QSlider, 
-                             QHBoxLayout, QPushButton, QLabel, QSplitter, QButtonGroup, QRadioButton, QCheckBox)
+                             QHBoxLayout, QPushButton, QLabel, QSplitter, QButtonGroup, QRadioButton, QCheckBox,
+                             QMenuBar, QAction, QFileDialog, QMessageBox, QComboBox)
 from PyQt5.QtCore import Qt
 from gui.image_canvas import ImageCanvas
 from gui.ps_canvas import PSCanvas
 from core.pattern_spectra import compute_global_ps, compute_local_ps_highlight
+from core.attributes import ATTR_FUNCS, BINS
+from core.pattern_spectra import compute_2d_ps_with_tracking
 import numpy as np
+import os
+from skimage.io import imread
+from skimage.color import rgb2gray
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -20,9 +26,51 @@ class MainWindow(QMainWindow):
         self.current_polygon = None
         self.current_selected_nodes = []  # Nodes selected from PS
         
+        self.setup_menu()
         self.setup_ui()
         self.setup_connections()
         self.compute_initial_ps()
+
+    def setup_menu(self):
+        """Configure the menu bar."""
+        menubar = self.menuBar()
+        
+        # File menu
+        file_menu = menubar.addMenu('File')
+        
+        # Open temporal sequence action
+        open_sequence_action = QAction('Open Temporal Sequence...', self)
+        open_sequence_action.setShortcut('Ctrl+O')
+        open_sequence_action.setStatusTip('Open a temporal sequence of PNG files')
+        open_sequence_action.triggered.connect(self.open_temporal_sequence)
+        file_menu.addAction(open_sequence_action)
+        
+        file_menu.addSeparator()
+        
+        # Reset to default sequence
+        reset_sequence_action = QAction('Reset to Default Sequence', self)
+        reset_sequence_action.setStatusTip('Reset to the default example sequence')
+        reset_sequence_action.triggered.connect(self.reset_to_default_sequence)
+        file_menu.addAction(reset_sequence_action)
+        
+        file_menu.addSeparator()
+        
+        # Exit action
+        exit_action = QAction('Exit', self)
+        exit_action.setShortcut('Ctrl+Q')
+        exit_action.setStatusTip('Exit application')
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
+        
+        # View menu
+        view_menu = menubar.addMenu('View')
+        
+        # Reset PS zoom action
+        reset_zoom_action = QAction('Reset PS Zoom', self)
+        reset_zoom_action.setShortcut('Ctrl+R')
+        reset_zoom_action.setStatusTip('Reset Pattern Spectra zoom to full view')
+        reset_zoom_action.triggered.connect(self.reset_ps_zoom)
+        view_menu.addAction(reset_zoom_action)
 
     def setup_ui(self):
         """User interface configuration."""
@@ -93,6 +141,22 @@ class MainWindow(QMainWindow):
         self.ps_label = QLabel("Pattern Spectra Global")
         self.ps_label.setAlignment(Qt.AlignCenter)
         
+        # Dropdowns pour sélectionner les attributs du PS 2D
+        self.attr1_combo = QComboBox()
+        self.attr2_combo = QComboBox()
+        self.attr1_combo.addItems(list(ATTR_FUNCS.keys()))
+        self.attr2_combo.addItems(list(ATTR_FUNCS.keys()))
+        self.attr1_combo.setCurrentIndex(0)
+        self.attr2_combo.setCurrentIndex(1 if len(ATTR_FUNCS)>1 else 0)
+        self.attr1_combo.currentTextChanged.connect(self.compute_initial_ps)
+        self.attr2_combo.currentTextChanged.connect(self.compute_initial_ps)
+        attr_layout = QHBoxLayout()
+        attr_layout.addWidget(QLabel("Axe X:"))
+        attr_layout.addWidget(self.attr1_combo)
+        attr_layout.addWidget(QLabel("Axe Y:"))
+        attr_layout.addWidget(self.attr2_combo)
+        right_layout.addLayout(attr_layout)
+        
         # Canvas PS interactif
         self.ps_canvas = PSCanvas()
         self.ps_canvas.setMinimumWidth(400)
@@ -129,12 +193,47 @@ class MainWindow(QMainWindow):
             # Récupérer la séquence d'images
             if not self.canvas_view.sequence:
                 return
+            
+            # Vérifier que toutes les images ont la même taille
+            if len(self.canvas_view.sequence) > 1:
+                first_shape = self.canvas_view.sequence[0].shape
+                for i, img in enumerate(self.canvas_view.sequence[1:], 1):
+                    if img.shape != first_shape:
+                        QMessageBox.critical(
+                            self, 
+                            "Error", 
+                            f"All images must have the same dimensions!\n"
+                            f"Image 1: {first_shape}\n"
+                            f"Image {i+1}: {img.shape}\n"
+                            f"Please load images with consistent dimensions."
+                        )
+                        return
                 
             cube = np.array(self.canvas_view.sequence)
             print(f"Calcul du PS pour cube de forme: {cube.shape}")
             
-            # Calculer le PS global
-            self.ps_data = compute_global_ps(cube)
+            # Calcule le PS global 2D avec attributs dynamiques
+            # Construire l'arbre et altitudes via compute_global_ps
+            base_data = compute_global_ps(cube)
+            tree = base_data['tree']
+            altitudes = base_data['altitudes']
+            # Calculer les attributs selon sélection
+            attr1 = ATTR_FUNCS[self.attr1_combo.currentText()](tree, cube)
+            attr2 = ATTR_FUNCS[self.attr2_combo.currentText()](tree, cube)
+            bins1 = BINS[self.attr1_combo.currentText()]
+            bins2 = BINS[self.attr2_combo.currentText()]
+            # Calculer le pattern spectra 2D avec tracking
+            tree, hist2d, bins1, bins2, node_to_bin2d, bin_contributions = \
+                compute_2d_ps_with_tracking(tree, altitudes, attr1, attr2, bins1, bins2)
+            self.ps_data = {
+                'tree': tree,
+                'altitudes': altitudes,
+                'hist2d': hist2d,
+                'bins1': bins1,
+                'bins2': bins2,
+                'node_to_bin2d': node_to_bin2d,
+                'bin_contributions': bin_contributions
+            }
             
             # Configurer le canvas PS
             self.ps_canvas.set_ps_data(self.ps_data)
@@ -149,6 +248,11 @@ class MainWindow(QMainWindow):
             print(f"Erreur lors du calcul du PS: {e}")
             import traceback
             traceback.print_exc()
+            QMessageBox.critical(
+                self, 
+                "Pattern Spectra Error", 
+                f"Failed to compute Pattern Spectra:\n{str(e)}\n\nPlease check that all images have the same dimensions."
+            )
 
     def on_slider_changed(self, idx):
         """Slider change handler."""
@@ -264,3 +368,109 @@ class MainWindow(QMainWindow):
             elif self.current_selected_nodes:
                 # Re-apply node selection with new color mode
                 self.canvas_view.set_selected_nodes(self.current_selected_nodes)
+
+    def open_temporal_sequence(self):
+        """Open a dialog to select multiple PNG files for temporal sequence."""
+        files, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Select Temporal Sequence Images",
+            "",
+            "PNG files (*.png);;JPEG files (*.jpg);;All files (*.*)",
+            options=QFileDialog.DontUseNativeDialog
+        )
+        
+        if files:
+            try:
+                # Sort files by name to ensure temporal order
+                files.sort()
+                
+                # Load the new sequence
+                new_sequence = []
+                for file_path in files:
+                    img = imread(file_path)
+                    if img.ndim == 3:
+                        img = (rgb2gray(img) * 255).astype(np.uint8)
+                    new_sequence.append(img)
+                
+                if len(new_sequence) == 0:
+                    QMessageBox.warning(self, "Warning", "No valid images found!")
+                    return
+                
+                # Validate that all images have the same dimensions
+                first_shape = new_sequence[0].shape
+                for i, img in enumerate(new_sequence[1:], 1):
+                    if img.shape != first_shape:
+                        QMessageBox.critical(
+                            self, 
+                            "Error", 
+                            f"All images must have the same dimensions!\n"
+                            f"First image: {first_shape}\n"
+                            f"Image {i+1}: {img.shape}"
+                        )
+                        return
+                
+                # Update the image canvas with new sequence
+                self.canvas_view.load_custom_sequence(new_sequence)
+                
+                # Update slider range
+                self.slider.setMaximum(len(new_sequence) - 1)
+                self.slider.setValue(0)
+                
+                # Clear all existing selections
+                self.clear_all_selections()
+                
+                # Recalculate pattern spectra
+                self.compute_initial_ps()
+                
+                # Update window title
+                self.setWindowTitle(f"LapSITS - Custom Sequence ({len(new_sequence)} images)")
+                
+                QMessageBox.information(
+                    self, 
+                    "Success", 
+                    f"Successfully loaded {len(new_sequence)} images!\n"
+                    f"Image dimensions: {first_shape}"
+                )
+                
+            except Exception as e:
+                QMessageBox.critical(
+                    self, 
+                    "Error", 
+                    f"Failed to load images:\n{str(e)}"
+                )
+    
+    def reset_to_default_sequence(self):
+        """Reset to the default example sequence."""
+        try:
+            # Reload default sequence
+            self.canvas_view.load_fixed_sequence()
+            
+            # Update slider range
+            self.slider.setMaximum(len(self.canvas_view.sequence) - 1)
+            self.slider.setValue(0)
+            
+            # Clear all existing selections
+            self.clear_all_selections()
+            
+            # Recalculate pattern spectra
+            self.compute_initial_ps()
+            
+            # Reset window title
+            self.setWindowTitle("LapSITS")
+            
+            QMessageBox.information(
+                self, 
+                "Success", 
+                "Reset to default sequence successfully!"
+            )
+            
+        except Exception as e:
+            QMessageBox.critical(
+                self, 
+                "Error", 
+                f"Failed to reset to default sequence:\n{str(e)}"
+            )
+    
+    def reset_ps_zoom(self):
+        """Reset Pattern Spectra zoom to full view."""
+        self.ps_canvas.reset_zoom()
