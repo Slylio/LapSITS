@@ -72,15 +72,29 @@ class ImageCanvas(QGraphicsView):
         self.display_index(0)
 
     def display_index(self, idx):
-        if not self.sequence:
+        if self.sequence is None or len(self.sequence) == 0:
             return
         self.current_index = idx
         img = self.sequence[idx]
-        h, w = img.shape
         
-        # Créer l'image Qt avec la bonne stride
-        bytes_per_line = w
-        qimg = QImage(img.data, w, h, bytes_per_line, QImage.Format_Grayscale8)
+        # Gérer les images RGB et niveaux de gris
+        if img.ndim == 3:  # Image RGB
+            h, w, c = img.shape
+            if c == 3:  # RGB
+                # Convertir en format Qt
+                bytes_per_line = w * 3
+                qimg = QImage(img.data, w, h, bytes_per_line, QImage.Format_RGB888)
+            else:  # Autre format non supporté
+                # Convertir en niveaux de gris
+                from skimage.color import rgb2gray
+                img_gray = (rgb2gray(img) * 255).astype(np.uint8)
+                bytes_per_line = w
+                qimg = QImage(img_gray.data, w, h, bytes_per_line, QImage.Format_Grayscale8)
+        else:  # Image niveaux de gris
+            h, w = img.shape
+            bytes_per_line = w
+            qimg = QImage(img.data, w, h, bytes_per_line, QImage.Format_Grayscale8)
+        
         pix = QPixmap.fromImage(qimg)
 
         if self.pixmap_item is None:
@@ -269,7 +283,8 @@ class ImageCanvas(QGraphicsView):
             self.scene.removeItem(overlay)
         self.node_overlays.clear()
         
-        if not self.selected_nodes or not self.ps_data or not self.sequence:
+        if (not self.selected_nodes or not self.ps_data or 
+            self.sequence is None or len(self.sequence) == 0):
             return
         
         if self.use_unique_colors:

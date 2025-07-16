@@ -1,16 +1,18 @@
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QSlider, 
                              QHBoxLayout, QPushButton, QLabel, QSplitter, QButtonGroup, QRadioButton, QCheckBox,
-                             QMenuBar, QAction, QFileDialog, QMessageBox, QComboBox)
+                             QMenuBar, QAction, QFileDialog, QMessageBox, QComboBox, QSpinBox, QLineEdit)
 from PyQt5.QtCore import Qt
 from gui.image_canvas import ImageCanvas
 from gui.ps_canvas import PSCanvas
 from core.pattern_spectra import compute_global_ps, compute_local_ps_highlight
 from core.attributes import ATTR_FUNCS, BINS
 from core.pattern_spectra import compute_2d_ps_with_tracking
+from core.tree import get_available_tree_types, get_tree_info, TREE_DISPLAY_NAMES, validate_cube_for_tree_type
 import numpy as np
 import os
 from skimage.io import imread
 from skimage.color import rgb2gray
+import traceback
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -25,6 +27,9 @@ class MainWindow(QMainWindow):
         self.ps_data = None
         self.current_polygon = None
         self.current_selected_nodes = []  # Nodes selected from PS
+        self.current_tree_type = 'tree_of_shapes'  # Default tree type
+        # Supprimer current_detail_level - plus de slider de niveau de détail
+        self.cube_rgb = None  # Store original RGB cube for watershed reconstruction
         
         self.setup_menu()
         self.setup_ui()
@@ -71,6 +76,15 @@ class MainWindow(QMainWindow):
         reset_zoom_action.setStatusTip('Reset Pattern Spectra zoom to full view')
         reset_zoom_action.triggered.connect(self.reset_ps_zoom)
         view_menu.addAction(reset_zoom_action)
+        
+        # Help menu
+        help_menu = menubar.addMenu('Help')
+        
+        # Tree types info action
+        tree_info_action = QAction('Types d\'arbres disponibles', self)
+        tree_info_action.setStatusTip('Afficher les informations sur les types d\'arbres')
+        tree_info_action.triggered.connect(self.show_tree_types_info)
+        help_menu.addAction(tree_info_action)
 
     def setup_ui(self):
         """User interface configuration."""
@@ -150,12 +164,37 @@ class MainWindow(QMainWindow):
         self.attr2_combo.setCurrentIndex(1 if len(ATTR_FUNCS)>1 else 0)
         self.attr1_combo.currentTextChanged.connect(self.compute_initial_ps)
         self.attr2_combo.currentTextChanged.connect(self.compute_initial_ps)
+        
+        # Dropdown pour sélectionner le type d'arbre
+        self.tree_type_combo = QComboBox()
+        available_trees = get_available_tree_types()
+        for tree_type in available_trees:
+            display_name = TREE_DISPLAY_NAMES.get(tree_type, tree_type)
+            self.tree_type_combo.addItem(display_name, tree_type)
+        self.tree_type_combo.setCurrentIndex(0)
+        self.tree_type_combo.currentTextChanged.connect(self.on_tree_type_changed)
+        
+        # Layout pour les contrôles
+        controls_layout = QVBoxLayout()
+        
+        # Ligne 1: Attributs
         attr_layout = QHBoxLayout()
         attr_layout.addWidget(QLabel("Axe X:"))
         attr_layout.addWidget(self.attr1_combo)
         attr_layout.addWidget(QLabel("Axe Y:"))
         attr_layout.addWidget(self.attr2_combo)
-        right_layout.addLayout(attr_layout)
+        controls_layout.addLayout(attr_layout)
+        
+        # Ligne 2: Type d'arbre
+        tree_layout = QHBoxLayout()
+        tree_layout.addWidget(QLabel("Type d'arbre:"))
+        tree_layout.addWidget(self.tree_type_combo)
+        tree_layout.addStretch()
+        controls_layout.addLayout(tree_layout)
+        
+        # Supprimer les contrôles de niveau de détail - affichage watershed sans slider
+        
+        right_layout.addLayout(controls_layout)
         
         # Canvas PS interactif
         self.ps_canvas = PSCanvas()
@@ -210,13 +249,35 @@ class MainWindow(QMainWindow):
                         return
                 
             cube = np.array(self.canvas_view.sequence)
-            print(f"Calcul du PS pour cube de forme: {cube.shape}")
+            print(f"Calcul du PS pour cube de forme: {cube.shape} avec arbre: {self.current_tree_type}")
             
-            # Calcule le PS global 2D avec attributs dynamiques
+            # Vérifier la compatibilité avec le type d'arbre sélectionné
+            if not validate_cube_for_tree_type(cube, self.current_tree_type):
+                tree_info = get_tree_info(self.current_tree_type)
+                QMessageBox.warning(
+                    self,
+                    "Incompatibilité de format",
+                    f"Le format de données actuel n'est pas optimal pour {tree_info['name']}.\n\n"
+                    f"Type d'arbre: {tree_info['name']}\n"
+                    f"Format requis: {tree_info['image_type']}\n"
+                    f"Format actuel: {'RGB' if cube.ndim == 4 else 'Niveaux de gris'}\n\n"
+                    f"Les données seront converties automatiquement, mais vous pourriez "
+                    f"obtenir de meilleurs résultats en choisissant un type d'arbre plus adapté."
+                )
+            
+            # Calcule le PS global 2D avec attributs dynamiques et type d'arbre
             # Construire l'arbre et altitudes via compute_global_ps
-            base_data = compute_global_ps(cube)
+            # Pas de niveau de détail pour le watershed - utiliser l'arbre complet
+            base_data = compute_global_ps(cube, self.current_tree_type)
             tree = base_data['tree']
             altitudes = base_data['altitudes']
+            
+            # Stocker les données pour le watershed
+            if self.current_tree_type == 'watershed':
+                self.cube_rgb = cube if cube.ndim == 4 else np.stack([cube, cube, cube], axis=-1)
+            else:
+                self.cube_rgb = None
+            
             # Calculer les attributs selon sélection
             attr1 = ATTR_FUNCS[self.attr1_combo.currentText()](tree, cube)
             attr2 = ATTR_FUNCS[self.attr2_combo.currentText()](tree, cube)
@@ -232,7 +293,8 @@ class MainWindow(QMainWindow):
                 'bins1': bins1,
                 'bins2': bins2,
                 'node_to_bin2d': node_to_bin2d,
-                'bin_contributions': bin_contributions
+                'bin_contributions': bin_contributions,
+                'tree_type': self.current_tree_type
             }
             
             # Configurer le canvas PS
@@ -243,6 +305,10 @@ class MainWindow(QMainWindow):
             
             # Afficher le PS
             self.ps_canvas.update_display()
+            
+            # Si c'est un watershed, afficher l'image RGB reconstruite
+            if self.current_tree_type == 'watershed':
+                self.update_watershed_image_display()
             
         except Exception as e:
             print(f"Erreur lors du calcul du PS: {e}")
@@ -264,6 +330,107 @@ class MainWindow(QMainWindow):
             self.ps_canvas.set_selection_mode('click')
         else:
             self.ps_canvas.set_selection_mode('polygon')
+    
+    def on_tree_type_changed(self, display_name):
+        """Handler for tree type change."""
+        # Get the actual tree type from the combo box data
+        current_index = self.tree_type_combo.currentIndex()
+        if current_index >= 0:
+            tree_type = self.tree_type_combo.itemData(current_index)
+            if tree_type != self.current_tree_type:
+                self.current_tree_type = tree_type
+                
+                # Plus de contrôles de slider pour le watershed
+                
+                # Show info about the selected tree type
+                tree_info = get_tree_info(tree_type)
+                print(f"Changement vers {tree_info['name']}: {tree_info['description']}")
+                print(f"Compatible avec: {tree_info['image_type']}")
+                
+                # Show info dialog to user
+                info_message = f"Description: {tree_info['description']}\n\n" \
+                              f"Compatible avec: {tree_info['image_type']}\n\n" \
+                              f"Le Pattern Spectra sera recalculé avec ce nouveau type d'arbre."
+                
+                if tree_type == 'watershed':
+                    info_message += "\n\nLe watershed affichera automatiquement les couleurs moyennes des régions."
+                
+                QMessageBox.information(
+                    self,
+                    f"Type d'arbre changé: {tree_info['name']}",
+                    info_message
+                )
+                
+                # Recalculate PS with new tree type
+                self.compute_initial_ps()
+    
+    # Fonctions de niveau de détail supprimées - plus de slider
+    
+    def update_watershed_image_display(self):
+        """Met à jour l'affichage de l'image watershed avec les couleurs moyennes."""
+        if self.current_tree_type != 'watershed' or self.ps_data is None or self.cube_rgb is None:
+            return
+        
+        try:
+            # Utiliser la même approche que display_watershed_lvl pour les couleurs moyennes
+            import higra as hg
+            
+            tree = self.ps_data['tree']
+            altitudes = self.ps_data['altitudes']
+            
+            # Calculer les couleurs moyennes pour chaque nœud
+            cube_vertex_weights = self.cube_rgb.reshape(-1, 3)
+            mean_colors = hg.attribute_mean_vertex_weights(tree, cube_vertex_weights)
+            
+            # Créer le graphe pour la labellisation
+            mask = [[[0, 0, 0], [0, 1, 0], [0, 0, 0]],
+                    [[0, 1, 0], [1, 0, 1], [0, 1, 0]],
+                    [[0, 0, 0], [0, 1, 0], [0, 0, 0]]]
+            graph = hg.get_nd_regular_graph(self.cube_rgb.shape[:3], hg.mask_2_neighbours(mask))
+            
+            # Utiliser le niveau maximum de la hiérarchie pour avoir toutes les couleurs
+            hce = hg.HorizontalCutExplorer(tree, altitudes)
+            max_level = tree.num_vertices() - tree.num_leaves() - 1
+            
+            # Tester si ce niveau est accessible
+            try:
+                cut = hce.horizontal_cut_from_index(max_level)
+            except:
+                # Si le niveau est trop élevé, essayer des niveaux plus bas
+                for level in range(max_level - 1, -1, -1):
+                    try:
+                        cut = hce.horizontal_cut_from_index(level)
+                        break
+                    except:
+                        continue
+                else:
+                    level = 0
+                    cut = hce.horizontal_cut_from_index(level)
+            
+            # Obtenir le label de région pour chaque pixel
+            labels_pixels = cut.labelisation_leaves(tree, graph)
+            
+            # Remplacer chaque label par la couleur moyenne correspondante
+            recon_pixels = mean_colors[labels_pixels]
+            recon_image = recon_pixels.reshape(self.cube_rgb.shape)
+            
+            # S'assurer que le résultat est en uint8 dans la plage [0, 255]
+            recon_image = np.clip(recon_image, 0, 255).astype(np.uint8)
+            
+            # Mettre à jour la séquence d'images dans le canvas
+            self.image_canvas.load_custom_sequence(recon_image)
+            
+            print(f"Image RGB reconstruite avec couleurs moyennes watershed")
+            
+        except Exception as e:
+            print(f"Erreur lors de la reconstruction de l'image: {e}")
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(
+                self,
+                "Erreur de reconstruction",
+                f"Impossible de reconstruire l'image watershed:\n{str(e)}"
+            )
             
     def on_bins_selected(self, selected_nodes):
         """Handler for bin selection in PS."""
@@ -474,3 +641,100 @@ class MainWindow(QMainWindow):
     def reset_ps_zoom(self):
         """Reset Pattern Spectra zoom to full view."""
         self.ps_canvas.reset_zoom()
+    
+    def show_tree_types_info(self):
+        """Affiche les informations sur les types d'arbres disponibles."""
+        info_text = "Types d'arbres disponibles pour le calcul des Pattern Spectra:\n\n"
+        
+        available_trees = get_available_tree_types()
+        for tree_type in available_trees:
+            tree_info = get_tree_info(tree_type)
+            info_text += f"• {tree_info['name']}\n"
+            info_text += f"  Description: {tree_info['description']}\n"
+            info_text += f"  Compatible avec: {tree_info['image_type']}\n\n"
+        
+        info_text += "Recommandations:\n"
+        info_text += "• Tree of Shapes: Idéal pour l'analyse de formes et contours\n"
+        info_text += "• Min-Tree: Parfait pour analyser les régions sombres\n"
+        info_text += "• Max-Tree: Optimal pour analyser les régions claires\n"
+        info_text += "• Watershed: Excellent pour la segmentation basée sur la couleur\n"
+        
+        QMessageBox.information(
+            self,
+            "Types d'arbres - Informations",
+            info_text
+        )
+
+    # Fonction update_cut_level_controls supprimée - nous utilisons seulement le slider de niveau de détail
+
+    def update_watershed_image_display(self):
+        """Met à jour l'affichage de l'image watershed avec les couleurs moyennes."""
+        if self.current_tree_type != 'watershed' or self.ps_data is None or self.cube_rgb is None:
+            return
+        
+        try:
+            # Utiliser la même approche que display_watershed_lvl pour les couleurs moyennes
+            import higra as hg
+            
+            tree = self.ps_data['tree']
+            altitudes = self.ps_data['altitudes']
+            
+            # Calculer les couleurs moyennes pour chaque nœud
+            cube_vertex_weights = self.cube_rgb.reshape(-1, 3)
+            mean_colors = hg.attribute_mean_vertex_weights(tree, cube_vertex_weights)
+            
+            # Créer le graphe pour la labellisation
+            mask = [[[0, 0, 0], [0, 1, 0], [0, 0, 0]],
+                    [[0, 1, 0], [1, 0, 1], [0, 1, 0]],
+                    [[0, 0, 0], [0, 1, 0], [0, 0, 0]]]
+            graph = hg.get_nd_regular_graph(self.cube_rgb.shape[:3], hg.mask_2_neighbours(mask))
+            
+            # Utiliser le niveau maximum de la hiérarchie pour avoir toutes les couleurs
+            hce = hg.HorizontalCutExplorer(tree, altitudes)
+            max_level = tree.num_vertices() - tree.num_leaves() - 1
+            
+            # Tester si ce niveau est accessible
+            try:
+                cut = hce.horizontal_cut_from_index(max_level)
+                level = max_level
+            except:
+                # Si le niveau est trop élevé, essayer des niveaux plus bas
+                for level in range(max_level - 1, -1, -1):
+                    try:
+                        cut = hce.horizontal_cut_from_index(level)
+                        break
+                    except:
+                        continue
+                else:
+                    level = 0
+                    cut = hce.horizontal_cut_from_index(level)
+            
+            # Obtenir le label de région pour chaque pixel
+            labels_pixels = cut.labelisation_leaves(tree, graph)
+            
+            # Remplacer chaque label par la couleur moyenne correspondante
+            recon_pixels = mean_colors[labels_pixels]
+            recon_image = recon_pixels.reshape(self.cube_rgb.shape)
+            
+            # S'assurer que le résultat est en uint8 dans la plage [0, 255]
+            recon_image = np.clip(recon_image, 0, 255).astype(np.uint8)
+            
+            # Convertir le array 4D en liste d'images pour load_custom_sequence
+            image_sequence = []
+            for t in range(recon_image.shape[0]):
+                image_sequence.append(recon_image[t])
+            
+            # Mettre à jour la séquence d'images dans le canvas
+            self.canvas_view.load_custom_sequence(image_sequence)
+            
+            print(f"Image RGB reconstruite avec couleurs moyennes watershed")
+            
+        except Exception as e:
+            print(f"Erreur lors de la reconstruction de l'image: {e}")
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(
+                self,
+                "Erreur de reconstruction",
+                f"Impossible de reconstruire l'image watershed:\n{str(e)}"
+            )

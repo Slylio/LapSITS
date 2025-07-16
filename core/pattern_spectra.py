@@ -9,34 +9,7 @@ from matplotlib.colors import LogNorm
 from skimage.draw import polygon as sk_polygon
 from shapely.geometry import Polygon
 from matplotlib import cm
-
-
-def compute_STstability_attribute_v2(tree, time_indices):
-    n_leaves = tree.num_leaves()
-    T = len(time_indices) # number of timesteps
-    frame_size = n_leaves // T # size of leaf slices per timestep
-  
-    """
-    np.arange(n_leaves) // frame_size == i : true on leaves of slice i (ex t1 : True x16, False x32, t2 : False x16, True x16, False x16 etc..)
-    hg.accumulate_sequential(tree, (np.arange(n_leaves) // frame_size == i).astype(np.float32), hg.Accumulators.sum) : area calculation taking only leaves from slice i
-    t1 :[ 1.  1.  1.  1.  1.  1.  1.  1.  1.  1.  1.  1.  1.  1.  1.  1.  0.  0.
-        0.  0.  0.  0.  0.  0.  0.  0.  0.  0.  0.  0.  0.  0.  0.  0.  0.  0.
-        0.  0.  0.  0.  0.  0.  0.  0.  0.  0.  0.  0.  0.  1.  1.  2.  1.  3.
-        4.  6.  0. 16.]
-    And we stack this in comp
-    """
-    comp = np.stack([
-        hg.accumulate_sequential(tree, (np.arange(n_leaves) // frame_size == i).astype(np.float32), hg.Accumulators.sum)
-        for i in range(T)
-    ], axis=1) 
-    a, b = comp[:, :-1], comp[:, 1:]
-    
-    valid = b > 0
-    r = np.divide(np.minimum(a, b), np.maximum(a, b), out=np.zeros_like(a), where=valid)
-    dt = np.diff(time_indices).astype(np.float32)
-    stability = (r * dt).sum(axis=1) / dt.sum()
-    stability[tree.root()] = 1.0
-    return stability
+from core.tree import compute_tree_with_type
 
 
 def shapely_to_mask(poly: Polygon, shape):
@@ -50,8 +23,17 @@ def shapely_to_mask(poly: Polygon, shape):
     return mask
 
 
-def pixelset_to_contained_subtree(tree, mask3d):
+def pixelset_to_contained_subtree(tree, mask3d, cube_shape):
     """Finds tree nodes entirely contained in the 3D mask."""
+    # Créer le graphe avec les bonnes dimensions (sans la dimension des canaux)
+    mask = [[[0, 0, 0], [0, 1, 0], [0, 0, 0]],
+            [[0, 1, 0], [1, 0, 1], [0, 1, 0]],
+            [[0, 0, 0], [0, 1, 0], [0, 0, 0]]]
+    
+    # Utiliser seulement les 3 premières dimensions (T, H, W)
+    graph_shape = cube_shape[:3]
+    graph = hg.get_nd_regular_graph(graph_shape, hg.mask_2_neighbours(mask))
+    
     return hg.accumulate_and_min_sequential(
         tree,
         np.ones(tree.num_vertices(), dtype=np.uint8),
@@ -116,24 +98,26 @@ def compute_2d_ps_with_tracking(tree, altitudes, attr1, attr2, bins1, bins2):
     return tree, hist2d, bins1, bins2, node_to_bin2d, bin_contributions
 
 
-def compute_global_ps(cube):
+def compute_global_ps(cube, tree_type='tree_of_shapes', detail_level=None):
     """
     Computes the global pattern spectra for a 3D image sequence.
     
     Args:
-        cube: 3D image sequence (T, H, W)
+        cube: 3D image sequence (T, H, W) or 4D (T, H, W, C)
+        tree_type: Type of tree to use ('tree_of_shapes', 'min_tree', 'max_tree', 'watershed')
+        detail_level: Detail level for watershed filtering (0.0 to 1.0)
     
     Returns:
         dict: Dictionary containing all PS calculation results
     """
     cube = cube.astype(np.uint8)
     
-    # Build 3D tree
-    tree, altitudes = hg.component_tree_tree_of_shapes_image3d(cube)
-    altitudes = altitudes.astype(np.float32)
+    # Build tree using specified type
+    tree, altitudes = compute_tree_with_type(cube, tree_type, detail_level)
     
     # Calculate attributes
     area = hg.attribute_area(tree)
+    from core.attributes import compute_STstability_attribute_v2
     stability = compute_STstability_attribute_v2(tree, [1, 2, 3, 4, 5])
     
     # Fixed bins for consistency
@@ -154,7 +138,8 @@ def compute_global_ps(cube):
         'bins1': bins1,
         'bins2': bins2,
         'node_to_bin2d': node_to_bin2d,
-        'bin_contributions': bin_contributions
+        'bin_contributions': bin_contributions,
+        'tree_type': tree_type
     }
 
 
@@ -165,7 +150,7 @@ def compute_local_ps_highlight(ps_data, polygon, cube_shape):
     Args:
         ps_data: Global PS data (return from compute_global_ps)
         polygon: Shapely polygon
-        cube_shape: Cube shape (T, H, W)
+        cube_shape: Cube shape (T, H, W, C) ou (T, H, W)
     
     Returns:
         tuple: (highlight_bins, contained_nodes)
@@ -173,11 +158,12 @@ def compute_local_ps_highlight(ps_data, polygon, cube_shape):
     tree = ps_data['tree']
     node_to_bin2d = ps_data['node_to_bin2d']
     
-    # 3D polygon mask
-    mask3d = np.stack([shapely_to_mask(polygon, cube_shape[1:]) for _ in range(cube_shape[0])])
+    # 3D polygon mask - utiliser seulement les dimensions spatiales
+    spatial_shape = cube_shape[1:3]  # (H, W)
+    mask3d = np.stack([shapely_to_mask(polygon, spatial_shape) for _ in range(cube_shape[0])])
     
     # Nodes contained in the polygon
-    node_mask = pixelset_to_contained_subtree(tree, mask3d)
+    node_mask = pixelset_to_contained_subtree(tree, mask3d, cube_shape)
     contained_nodes = np.where(node_mask)[0]
     contained_nodes = [n for n in contained_nodes if n >= tree.num_leaves()]
     
@@ -204,6 +190,7 @@ def plot_ps_with_highlights(ax, ps_data, highlight_bins=None, contained_nodes=No
     bins1 = ps_data['bins1']
     bins2 = ps_data['bins2']
     bin_contributions = ps_data['bin_contributions']
+    tree_type = ps_data.get('tree_type', 'tree_of_shapes')
     
     # Display global PS in background
     cmap = cm.get_cmap('viridis')
@@ -231,7 +218,11 @@ def plot_ps_with_highlights(ax, ps_data, highlight_bins=None, contained_nodes=No
     ax.set_yscale('linear')
     ax.set_xlabel('Area (log scale)')
     ax.set_ylabel('Stability')
-    ax.set_title('Pattern Spectra')
+    
+    # Display tree type in title
+    from core.tree import TREE_DISPLAY_NAMES
+    tree_name = TREE_DISPLAY_NAMES.get(tree_type, tree_type)
+    ax.set_title(f'Pattern Spectra - {tree_name}')
     ax.grid(True, which='major', linestyle='-', linewidth=0.5, alpha=0.3)
     
     return pcm
