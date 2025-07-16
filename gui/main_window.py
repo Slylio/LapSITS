@@ -260,7 +260,7 @@ class MainWindow(QMainWindow):
         """Calcule le pattern spectra initial."""
         try:
             # Récupérer la séquence d'images
-            if not self.canvas_view.sequence:
+            if self.canvas_view.sequence is None or len(self.canvas_view.sequence) == 0:
                 return
             
             # Vérifier que toutes les images ont la même taille
@@ -441,6 +441,79 @@ class MainWindow(QMainWindow):
             
             # Mettre à jour l'affichage de l'image
             self.update_watershed_image_display()
+            
+            # Mettre à jour l'affichage des nœuds pour le nouveau niveau
+            if self.current_selected_nodes and self.checkbox_show_nodes.isChecked():
+                self.update_nodes_for_watershed_level()
+    
+    def update_nodes_for_watershed_level(self):
+        """Met à jour l'affichage des nœuds pour le niveau de reconstruction watershed actuel."""
+        if (self.current_tree_type != 'watershed' or 
+            not self.current_selected_nodes or 
+            not self.checkbox_show_nodes.isChecked()):
+            return
+            
+        try:
+            # Filtrer les nœuds selon le niveau de reconstruction actuel
+            filtered_nodes = self.filter_nodes_by_watershed_level(
+                self.current_selected_nodes, 
+                self.current_watershed_level
+            )
+            
+            # Mettre à jour l'affichage avec les nœuds filtrés
+            self.canvas_view.set_selected_nodes(filtered_nodes)
+            
+            print(f"Nœuds filtrés pour niveau {self.current_watershed_level}: {len(filtered_nodes)}/{len(self.current_selected_nodes)}")
+            
+        except Exception as e:
+            print(f"Erreur lors de la mise à jour des nœuds: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def filter_nodes_by_watershed_level(self, nodes, level):
+        """Filtre les nœuds selon le niveau de reconstruction watershed."""
+        if not nodes or self.ps_data is None:
+            return nodes
+            
+        try:
+            import higra as hg
+            
+            tree = self.ps_data['tree']
+            altitudes = self.ps_data['altitudes']
+            
+            # Créer un HorizontalCutExplorer pour le niveau actuel
+            hce = hg.HorizontalCutExplorer(tree, altitudes)
+            
+            # Faire la coupe au niveau spécifié
+            try:
+                cut = hce.horizontal_cut_from_index(level)
+            except:
+                # Si le niveau n'est pas accessible, utiliser le niveau maximum accessible
+                max_accessible = min(level, tree.num_vertices() - tree.num_leaves() - 1)
+                cut = hce.horizontal_cut_from_index(max_accessible)
+            
+            # Obtenir les nœuds actifs à ce niveau
+            active_nodes = set()
+            
+            # Parcourir tous les nœuds de la coupe
+            for node in cut.nodes():
+                active_nodes.add(node)
+                
+                # Ajouter aussi les ancêtres jusqu'à un certain niveau
+                current = node
+                while current != tree.root() and current in tree.ancestors(node):
+                    active_nodes.add(current)
+                    current = tree.parent(current)
+            
+            # Filtrer les nœuds sélectionnés pour ne garder que ceux actifs
+            filtered_nodes = [node for node in nodes if node in active_nodes]
+            
+            return filtered_nodes
+            
+        except Exception as e:
+            print(f"Erreur lors du filtrage des nœuds: {e}")
+            # En cas d'erreur, retourner les nœuds originaux
+            return nodes
     
     # Fonctions de niveau de détail supprimées - plus de slider
     
@@ -502,7 +575,15 @@ class MainWindow(QMainWindow):
         
         # Automatically respect the "Show nodes" option
         if self.checkbox_show_nodes.isChecked():
-            self.canvas_view.set_selected_nodes(selected_nodes)
+            # Pour le watershed, filtrer les nœuds selon le niveau actuel
+            if self.current_tree_type == 'watershed' and hasattr(self, 'current_watershed_level'):
+                filtered_nodes = self.filter_nodes_by_watershed_level(
+                    selected_nodes, 
+                    self.current_watershed_level
+                )
+                self.canvas_view.set_selected_nodes(filtered_nodes)
+            else:
+                self.canvas_view.set_selected_nodes(selected_nodes)
         else:
             self.canvas_view.set_selected_nodes([])
         
@@ -532,8 +613,17 @@ class MainWindow(QMainWindow):
             
             # Automatically show nodes if the option is enabled
             if self.checkbox_show_nodes.isChecked():
-                self.canvas_view.set_selected_nodes(contained_nodes)
-                status_text = f"Pattern Spectra - {len(contained_nodes)} nodes selected (Image + Nodes)"
+                # Pour le watershed, filtrer les nœuds selon le niveau actuel
+                if self.current_tree_type == 'watershed' and hasattr(self, 'current_watershed_level'):
+                    filtered_nodes = self.filter_nodes_by_watershed_level(
+                        contained_nodes, 
+                        self.current_watershed_level
+                    )
+                    self.canvas_view.set_selected_nodes(filtered_nodes)
+                    status_text = f"Pattern Spectra - {len(contained_nodes)} nodes selected ({len(filtered_nodes)} visible at current level)"
+                else:
+                    self.canvas_view.set_selected_nodes(contained_nodes)
+                    status_text = f"Pattern Spectra - {len(contained_nodes)} nodes selected (Image + Nodes)"
             else:
                 # Clear nodes display if option is disabled
                 self.canvas_view.set_selected_nodes([])
@@ -581,7 +671,15 @@ class MainWindow(QMainWindow):
         # If there's an active PS bin selection, update immediately
         elif self.current_selected_nodes:
             if state == Qt.Checked:
-                self.canvas_view.set_selected_nodes(self.current_selected_nodes)
+                # Pour le watershed, filtrer les nœuds selon le niveau actuel
+                if self.current_tree_type == 'watershed' and hasattr(self, 'current_watershed_level'):
+                    filtered_nodes = self.filter_nodes_by_watershed_level(
+                        self.current_selected_nodes, 
+                        self.current_watershed_level
+                    )
+                    self.canvas_view.set_selected_nodes(filtered_nodes)
+                else:
+                    self.canvas_view.set_selected_nodes(self.current_selected_nodes)
             else:
                 self.canvas_view.set_selected_nodes([])
 
@@ -598,7 +696,15 @@ class MainWindow(QMainWindow):
                 self.on_polygon_selected(self.current_polygon)
             elif self.current_selected_nodes:
                 # Re-apply node selection with new color mode
-                self.canvas_view.set_selected_nodes(self.current_selected_nodes)
+                # Pour le watershed, filtrer les nœuds selon le niveau actuel
+                if self.current_tree_type == 'watershed' and hasattr(self, 'current_watershed_level'):
+                    filtered_nodes = self.filter_nodes_by_watershed_level(
+                        self.current_selected_nodes, 
+                        self.current_watershed_level
+                    )
+                    self.canvas_view.set_selected_nodes(filtered_nodes)
+                else:
+                    self.canvas_view.set_selected_nodes(self.current_selected_nodes)
 
     def open_temporal_sequence(self):
         """Open a dialog to select multiple PNG files for temporal sequence."""
@@ -741,77 +847,3 @@ class MainWindow(QMainWindow):
             "Types d'arbres - Informations",
             info_text
         )
-
-    # Fonction update_cut_level_controls supprimée - nous utilisons seulement le slider de niveau de détail
-
-    def update_watershed_image_display(self):
-        """Met à jour l'affichage de l'image watershed avec les couleurs moyennes."""
-        if self.current_tree_type != 'watershed' or self.ps_data is None or self.cube_rgb is None:
-            return
-        
-        try:
-            # Utiliser la même approche que display_watershed_lvl pour les couleurs moyennes
-            import higra as hg
-            
-            tree = self.ps_data['tree']
-            altitudes = self.ps_data['altitudes']
-            
-            # Calculer les couleurs moyennes pour chaque nœud
-            cube_vertex_weights = self.cube_rgb.reshape(-1, 3)
-            mean_colors = hg.attribute_mean_vertex_weights(tree, cube_vertex_weights)
-            
-            # Créer le graphe pour la labellisation
-            mask = [[[0, 0, 0], [0, 1, 0], [0, 0, 0]],
-                    [[0, 1, 0], [1, 0, 1], [0, 1, 0]],
-                    [[0, 0, 0], [0, 1, 0], [0, 0, 0]]]
-            graph = hg.get_nd_regular_graph(self.cube_rgb.shape[:3], hg.mask_2_neighbours(mask))
-            
-            # Utiliser le niveau maximum de la hiérarchie pour avoir toutes les couleurs
-            hce = hg.HorizontalCutExplorer(tree, altitudes)
-            max_level = tree.num_vertices() - tree.num_leaves() - 1
-            
-            # Tester si ce niveau est accessible
-            try:
-                cut = hce.horizontal_cut_from_index(max_level)
-                level = max_level
-            except:
-                # Si le niveau est trop élevé, essayer des niveaux plus bas
-                for level in range(max_level - 1, -1, -1):
-                    try:
-                        cut = hce.horizontal_cut_from_index(level)
-                        break
-                    except:
-                        continue
-                else:
-                    level = 0
-                    cut = hce.horizontal_cut_from_index(level)
-            
-            # Obtenir le label de région pour chaque pixel
-            labels_pixels = cut.labelisation_leaves(tree, graph)
-            
-            # Remplacer chaque label par la couleur moyenne correspondante
-            recon_pixels = mean_colors[labels_pixels]
-            recon_image = recon_pixels.reshape(self.cube_rgb.shape)
-            
-            # S'assurer que le résultat est en uint8 dans la plage [0, 255]
-            recon_image = np.clip(recon_image, 0, 255).astype(np.uint8)
-            
-            # Convertir le array 4D en liste d'images pour load_custom_sequence
-            image_sequence = []
-            for t in range(recon_image.shape[0]):
-                image_sequence.append(recon_image[t])
-            
-            # Mettre à jour la séquence d'images dans le canvas
-            self.canvas_view.load_custom_sequence(image_sequence)
-            
-            print(f"Image RGB reconstruite avec couleurs moyennes watershed")
-            
-        except Exception as e:
-            print(f"Erreur lors de la reconstruction de l'image: {e}")
-            import traceback
-            traceback.print_exc()
-            QMessageBox.critical(
-                self,
-                "Erreur de reconstruction",
-                f"Impossible de reconstruire l'image watershed:\n{str(e)}"
-            )
