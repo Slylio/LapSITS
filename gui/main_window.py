@@ -30,6 +30,9 @@ class MainWindow(QMainWindow):
         self.current_tree_type = 'tree_of_shapes'  # Default tree type
         # Supprimer current_detail_level - plus de slider de niveau de détail
         self.cube_rgb = None  # Store original RGB cube for watershed reconstruction
+        self.original_rgb_sequence = None  # Store original RGB sequence for watershed
+        self.max_watershed_level = 0  # Store max level for watershed reconstruction
+        self.current_watershed_level = 0  # Current level for watershed reconstruction
         
         self.setup_menu()
         self.setup_ui()
@@ -192,6 +195,33 @@ class MainWindow(QMainWindow):
         tree_layout.addStretch()
         controls_layout.addLayout(tree_layout)
         
+        # Contrôles watershed (visibles seulement pour le type watershed)
+        self.watershed_controls = QWidget()
+        watershed_layout = QVBoxLayout()
+        
+        # Ligne pour le niveau de reconstruction
+        level_layout = QHBoxLayout()
+        level_layout.addWidget(QLabel("Niveau de reconstruction:"))
+        
+        self.watershed_level_slider = QSlider(Qt.Horizontal)
+        self.watershed_level_slider.setMinimum(0)
+        self.watershed_level_slider.setMaximum(100)  # Sera ajusté dynamiquement
+        self.watershed_level_slider.setValue(50)  # Commence à 50% (équivalent à max_level//2)
+        self.watershed_level_slider.valueChanged.connect(self.on_watershed_level_changed)
+        
+        self.watershed_level_label = QLabel("50%")
+        self.watershed_level_label.setMinimumWidth(40)
+        
+        level_layout.addWidget(self.watershed_level_slider)
+        level_layout.addWidget(self.watershed_level_label)
+        
+        watershed_layout.addLayout(level_layout)
+        
+        self.watershed_controls.setLayout(watershed_layout)
+        self.watershed_controls.setVisible(False)  # Masqué par défaut
+        
+        controls_layout.addWidget(self.watershed_controls)
+        
         # Supprimer les contrôles de niveau de détail - affichage watershed sans slider
         
         right_layout.addLayout(controls_layout)
@@ -249,10 +279,42 @@ class MainWindow(QMainWindow):
                         return
                 
             cube = np.array(self.canvas_view.sequence)
-            print(f"Calcul du PS pour cube de forme: {cube.shape} avec arbre: {self.current_tree_type}")
+            
+            # Pour le watershed, nous avons besoin des données RGB originales
+            if self.current_tree_type == 'watershed':
+                # Charger les données RGB originales
+                if self.original_rgb_sequence is not None:
+                    # Utiliser les données RGB chargées par l'utilisateur
+                    cube_rgb = np.array(self.original_rgb_sequence)
+                else:
+                    # Charger les données RGB par défaut
+                    base_path = "data/sits_example"
+                    files = sorted([os.path.join(base_path, f) for f in os.listdir(base_path) if f.endswith(".png")])
+                    rgb_sequence = []
+                    for f in files:
+                        img = imread(f)
+                        if img.ndim == 3:
+                            # Garder les données RGB pour le watershed
+                            rgb_sequence.append(img)
+                        else:
+                            # Convertir en RGB si l'image est en niveaux de gris
+                            rgb_sequence.append(np.stack([img, img, img], axis=-1))
+                    
+                    cube_rgb = np.array(rgb_sequence)
+                    # Stocker pour utilisation ultérieure
+                    self.original_rgb_sequence = rgb_sequence
+                
+                print(f"Calcul du PS watershed pour cube RGB de forme: {cube_rgb.shape}")
+                
+                # Utiliser le cube RGB pour le calcul du PS watershed
+                cube_for_ps = cube_rgb
+            else:
+                cube_for_ps = cube
+            
+            print(f"Calcul du PS pour cube de forme: {cube_for_ps.shape} avec arbre: {self.current_tree_type}")
             
             # Vérifier la compatibilité avec le type d'arbre sélectionné
-            if not validate_cube_for_tree_type(cube, self.current_tree_type):
+            if not validate_cube_for_tree_type(cube_for_ps, self.current_tree_type):
                 tree_info = get_tree_info(self.current_tree_type)
                 QMessageBox.warning(
                     self,
@@ -260,7 +322,7 @@ class MainWindow(QMainWindow):
                     f"Le format de données actuel n'est pas optimal pour {tree_info['name']}.\n\n"
                     f"Type d'arbre: {tree_info['name']}\n"
                     f"Format requis: {tree_info['image_type']}\n"
-                    f"Format actuel: {'RGB' if cube.ndim == 4 else 'Niveaux de gris'}\n\n"
+                    f"Format actuel: {'RGB' if cube_for_ps.ndim == 4 else 'Niveaux de gris'}\n\n"
                     f"Les données seront converties automatiquement, mais vous pourriez "
                     f"obtenir de meilleurs résultats en choisissant un type d'arbre plus adapté."
                 )
@@ -268,19 +330,19 @@ class MainWindow(QMainWindow):
             # Calcule le PS global 2D avec attributs dynamiques et type d'arbre
             # Construire l'arbre et altitudes via compute_global_ps
             # Pas de niveau de détail pour le watershed - utiliser l'arbre complet
-            base_data = compute_global_ps(cube, self.current_tree_type)
+            base_data = compute_global_ps(cube_for_ps, self.current_tree_type)
             tree = base_data['tree']
             altitudes = base_data['altitudes']
             
             # Stocker les données pour le watershed
             if self.current_tree_type == 'watershed':
-                self.cube_rgb = cube if cube.ndim == 4 else np.stack([cube, cube, cube], axis=-1)
+                self.cube_rgb = cube_for_ps  # Utiliser directement le cube RGB
             else:
                 self.cube_rgb = None
             
             # Calculer les attributs selon sélection
-            attr1 = ATTR_FUNCS[self.attr1_combo.currentText()](tree, cube)
-            attr2 = ATTR_FUNCS[self.attr2_combo.currentText()](tree, cube)
+            attr1 = ATTR_FUNCS[self.attr1_combo.currentText()](tree, cube_for_ps)
+            attr2 = ATTR_FUNCS[self.attr2_combo.currentText()](tree, cube_for_ps)
             bins1 = BINS[self.attr1_combo.currentText()]
             bins2 = BINS[self.attr2_combo.currentText()]
             # Calculer le pattern spectra 2D avec tracking
@@ -340,7 +402,9 @@ class MainWindow(QMainWindow):
             if tree_type != self.current_tree_type:
                 self.current_tree_type = tree_type
                 
-                # Plus de contrôles de slider pour le watershed
+                # Afficher/masquer les contrôles watershed selon le type d'arbre
+                is_watershed = (tree_type == 'watershed')
+                self.watershed_controls.setVisible(is_watershed)
                 
                 # Show info about the selected tree type
                 tree_info = get_tree_info(tree_type)
@@ -353,7 +417,8 @@ class MainWindow(QMainWindow):
                               f"Le Pattern Spectra sera recalculé avec ce nouveau type d'arbre."
                 
                 if tree_type == 'watershed':
-                    info_message += "\n\nLe watershed affichera automatiquement les couleurs moyennes des régions."
+                    info_message += "\n\nLe watershed affichera automatiquement les couleurs moyennes des régions.\n" \
+                                    "Utilisez le slider de niveau pour contrôler le degré de simplification."
                 
                 QMessageBox.information(
                     self,
@@ -364,6 +429,19 @@ class MainWindow(QMainWindow):
                 # Recalculate PS with new tree type
                 self.compute_initial_ps()
     
+    def on_watershed_level_changed(self, value):
+        """Handler for watershed level slider change."""
+        if self.current_tree_type == 'watershed' and self.ps_data is not None:
+            # Convertir le pourcentage en niveau réel
+            level = int((value / 100.0) * self.max_watershed_level)
+            self.current_watershed_level = level
+            
+            # Mettre à jour l'affichage du pourcentage
+            self.watershed_level_label.setText(f"{value}%")
+            
+            # Mettre à jour l'affichage de l'image
+            self.update_watershed_image_display()
+    
     # Fonctions de niveau de détail supprimées - plus de slider
     
     def update_watershed_image_display(self):
@@ -372,55 +450,41 @@ class MainWindow(QMainWindow):
             return
         
         try:
-            # Utiliser la même approche que display_watershed_lvl pour les couleurs moyennes
-            import higra as hg
+            # Importer la fonction de reconstruction depuis watershed.py
+            from watershed import reconstruct_rgb_at_level, get_max_hierarchy_level
             
             tree = self.ps_data['tree']
             altitudes = self.ps_data['altitudes']
+            print(self.cube_rgb.shape)
+            # Obtenir le niveau maximum de la hiérarchie
+            max_level = get_max_hierarchy_level(tree, altitudes)
+            self.max_watershed_level = max_level
             
-            # Calculer les couleurs moyennes pour chaque nœud
-            cube_vertex_weights = self.cube_rgb.reshape(-1, 3)
-            mean_colors = hg.attribute_mean_vertex_weights(tree, cube_vertex_weights)
+            # Utiliser le niveau sélectionné par l'utilisateur, ou max_level//2 par défaut
+            if hasattr(self, 'current_watershed_level'):
+                level = self.current_watershed_level
+            else:
+                level = max_level // 2
+                self.current_watershed_level = level
             
-            # Créer le graphe pour la labellisation
-            mask = [[[0, 0, 0], [0, 1, 0], [0, 0, 0]],
-                    [[0, 1, 0], [1, 0, 1], [0, 1, 0]],
-                    [[0, 0, 0], [0, 1, 0], [0, 0, 0]]]
-            graph = hg.get_nd_regular_graph(self.cube_rgb.shape[:3], hg.mask_2_neighbours(mask))
+            # Mettre à jour le slider si nécessaire
+            if hasattr(self, 'watershed_level_slider'):
+                # Calculer le pourcentage correspondant au niveau actuel
+                percentage = int((level / max_level) * 100) if max_level > 0 else 50
+                self.watershed_level_slider.blockSignals(True)  # Éviter la récursion
+                self.watershed_level_slider.setValue(percentage)
+                self.watershed_level_label.setText(f"{percentage}%")
+                self.watershed_level_slider.blockSignals(False)
             
-            # Utiliser le niveau maximum de la hiérarchie pour avoir toutes les couleurs
-            hce = hg.HorizontalCutExplorer(tree, altitudes)
-            max_level = tree.num_vertices() - tree.num_leaves() - 1
+            print(f"Reconstruction watershed au niveau {level}/{max_level} ({int((level/max_level)*100) if max_level > 0 else 50}%)")
             
-            # Tester si ce niveau est accessible
-            try:
-                cut = hce.horizontal_cut_from_index(max_level)
-            except:
-                # Si le niveau est trop élevé, essayer des niveaux plus bas
-                for level in range(max_level - 1, -1, -1):
-                    try:
-                        cut = hce.horizontal_cut_from_index(level)
-                        break
-                    except:
-                        continue
-                else:
-                    level = 0
-                    cut = hce.horizontal_cut_from_index(level)
-            
-            # Obtenir le label de région pour chaque pixel
-            labels_pixels = cut.labelisation_leaves(tree, graph)
-            
-            # Remplacer chaque label par la couleur moyenne correspondante
-            recon_pixels = mean_colors[labels_pixels]
-            recon_image = recon_pixels.reshape(self.cube_rgb.shape)
-            
-            # S'assurer que le résultat est en uint8 dans la plage [0, 255]
-            recon_image = np.clip(recon_image, 0, 255).astype(np.uint8)
+            # Reconstruire l'image RGB au niveau spécifié
+            recon_image = reconstruct_rgb_at_level(tree, altitudes, self.cube_rgb, level)
             
             # Mettre à jour la séquence d'images dans le canvas
-            self.image_canvas.load_custom_sequence(recon_image)
+            self.canvas_view.load_custom_sequence(recon_image)
             
-            print(f"Image RGB reconstruite avec couleurs moyennes watershed")
+            print(f"Image RGB reconstruite avec couleurs moyennes watershed au niveau {level}")
             
         except Exception as e:
             print(f"Erreur lors de la reconstruction de l'image: {e}")
@@ -553,15 +617,25 @@ class MainWindow(QMainWindow):
                 
                 # Load the new sequence
                 new_sequence = []
+                new_rgb_sequence = []
                 for file_path in files:
                     img = imread(file_path)
                     if img.ndim == 3:
+                        # Stocker l'image RGB originale
+                        new_rgb_sequence.append(img)
+                        # Convertir en niveaux de gris pour l'affichage normal
                         img = (rgb2gray(img) * 255).astype(np.uint8)
+                    else:
+                        # Si l'image est déjà en niveaux de gris, créer une version RGB
+                        new_rgb_sequence.append(np.stack([img, img, img], axis=-1))
                     new_sequence.append(img)
                 
                 if len(new_sequence) == 0:
                     QMessageBox.warning(self, "Warning", "No valid images found!")
                     return
+                
+                # Stocker les données RGB originales pour le watershed
+                self.original_rgb_sequence = new_rgb_sequence
                 
                 # Validate that all images have the same dimensions
                 first_shape = new_sequence[0].shape
@@ -611,6 +685,9 @@ class MainWindow(QMainWindow):
         try:
             # Reload default sequence
             self.canvas_view.load_fixed_sequence()
+            
+            # Reset RGB sequence for watershed
+            self.original_rgb_sequence = None
             
             # Update slider range
             self.slider.setMaximum(len(self.canvas_view.sequence) - 1)

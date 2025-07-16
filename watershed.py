@@ -44,12 +44,15 @@ def reconstruct_rgb_at_level(tree, altitudes, cube_rgb, level):
         np.ndarray: Image reconstruite (T, H, W, C) avec couleurs moyennes (uint8)
     """
     # S'assurer que l'image d'entrée est en uint8
+    print(f"Reconstruction à partir du niveau {level} de l'arbre avec {tree.num_vertices()} nœuds")
     if cube_rgb.dtype != np.uint8:
         cube_rgb = (cube_rgb * 255).astype(np.uint8)
     
     # Calculer les couleurs moyennes pour chaque nœud
     cube_vertex_weights = cube_rgb.reshape(-1, 3).astype(np.float32)
+    print(f"Cube RGB reshaped: {cube_vertex_weights.shape}")
     mean_colors = hg.attribute_mean_vertex_weights(tree, cube_vertex_weights)
+    print(f"Mean colors shape: {mean_colors.shape}")
     
     # Créer le graphe pour la labellisation
     mask = [[[0, 0, 0], [0, 1, 0], [0, 0, 0]],
@@ -70,7 +73,7 @@ def reconstruct_rgb_at_level(tree, altitudes, cube_rgb, level):
     
     # S'assurer que le résultat est en uint8 dans la plage [0, 255]
     recon_image = np.clip(recon_image, 0, 255).astype(np.uint8)
-    
+    print(f"Image reconstruite: {recon_image.shape}, dtype: {recon_image.dtype}")
     return recon_image
 
 
