@@ -214,10 +214,16 @@ def plot_ps_with_highlights(ax, ps_data, highlight_bins=None, contained_nodes=No
                                         cmap=cm.get_cmap('coolwarm'), shading='auto', alpha=0.9)
     
     # Axis configuration
-    ax.set_xscale('log')
-    ax.set_yscale('linear')
-    ax.set_xlabel('Area (log scale)')
-    ax.set_ylabel('Stability')
+    # Set axis scales if specified in ps_data
+    xscale = ps_data.get('bins1_scale')
+    yscale = ps_data.get('bins2_scale')
+    if xscale:
+        ax.set_xscale(xscale)
+    if yscale:
+        ax.set_yscale(yscale)
+
+    ax.set_xlabel(ps_data.get('x_label', 'Axe X'))
+    ax.set_ylabel(ps_data.get('y_label', 'Axe Y'))
     
     # Display tree type in title
     from core.tree import TREE_DISPLAY_NAMES
@@ -348,8 +354,8 @@ def get_bin_coordinates_from_point(ps_data, x_coord, y_coord):
     Returns:
         tuple: (i, j) bin indices, or None if out of bounds
     """
-    bins1 = ps_data['bins1']  # Area (log scale)
-    bins2 = ps_data['bins2']  # Stability (linear scale)
+    bins1 = ps_data['bins1']  # Predefined attribute 1 : Area (log scale) 
+    bins2 = ps_data['bins2']  # Predefined attribute 2 : Stability (linear scale)
     
     # Find bin index for area (log scale)
     i = np.digitize(x_coord, bins1, right=False) - 1

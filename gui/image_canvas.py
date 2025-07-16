@@ -26,6 +26,12 @@ class ImageCanvas(QGraphicsView):
         # Allow zoom with mouse wheel
         self.setDragMode(QGraphicsView.RubberBandDrag)
         
+        # Zoom configuration
+        self.zoom_factor = 1.15  # Facteur de zoom par cran de molette
+        self.min_zoom = 0.1
+        self.max_zoom = 10.0
+        self.current_zoom = 1.0
+        
         # Variables for polygon selection
         self.polygon_points = []
         self.polygon_item = None
@@ -130,6 +136,7 @@ class ImageCanvas(QGraphicsView):
         """Réinitialiser le zoom à 100%"""
         if self.pixmap_item is not None:
             self.resetTransform()
+            self.current_zoom = 1.0
     
     def zoom_to_fit(self):
         """Zoomer pour que l'image occupe le maximum d'espace sans déborder"""
@@ -146,6 +153,38 @@ class ImageCanvas(QGraphicsView):
                 self.resetTransform()
                 self.scale(scale, scale)
                 self.centerOn(scene_rect.center())
+                self.current_zoom = scale
+    
+    def wheelEvent(self, event):
+        """Gestion du zoom avec la molette de la souris"""
+        if self.pixmap_item is not None:
+            # Calculer le facteur de zoom
+            if event.angleDelta().y() > 0:
+                # Zoom avant
+                zoom_factor = self.zoom_factor
+            else:
+                # Zoom arrière
+                zoom_factor = 1.0 / self.zoom_factor
+            
+            # Vérifier les limites de zoom
+            new_zoom = self.current_zoom * zoom_factor
+            if new_zoom < self.min_zoom:
+                zoom_factor = self.min_zoom / self.current_zoom
+                new_zoom = self.min_zoom
+            elif new_zoom > self.max_zoom:
+                zoom_factor = self.max_zoom / self.current_zoom
+                new_zoom = self.max_zoom
+            
+            # Appliquer le zoom centré sur la position de la souris
+            old_pos = self.mapToScene(event.pos())
+            self.scale(zoom_factor, zoom_factor)
+            new_pos = self.mapToScene(event.pos())
+            delta = new_pos - old_pos
+            self.translate(delta.x(), delta.y())
+            
+            self.current_zoom = new_zoom
+        else:
+            super().wheelEvent(event)
     
     def mousePressEvent(self, event):
         """Mouse click handling for polygon selection."""

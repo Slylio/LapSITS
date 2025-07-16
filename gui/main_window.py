@@ -5,7 +5,7 @@ from PyQt5.QtCore import Qt
 from gui.image_canvas import ImageCanvas
 from gui.ps_canvas import PSCanvas
 from core.pattern_spectra import compute_global_ps, compute_local_ps_highlight
-from core.attributes import ATTR_FUNCS, BINS
+from core.attributes import ATTR_FUNCS, BINS, BINS_SCALES
 from core.pattern_spectra import compute_2d_ps_with_tracking
 from core.tree import get_available_tree_types, get_tree_info, TREE_DISPLAY_NAMES, validate_cube_for_tree_type
 import numpy as np
@@ -32,7 +32,7 @@ class MainWindow(QMainWindow):
         self.cube_rgb = None  # Store original RGB cube for watershed reconstruction
         self.original_rgb_sequence = None  # Store original RGB sequence for watershed
         self.max_watershed_level = 0  # Store max level for watershed reconstruction
-        self.current_watershed_level = 0  # Current level for watershed reconstruction
+        self.current_watershed_level = 0  # Current level for watershed reconstruction - will be set to 50% when initialized
         
         self.setup_menu()
         self.setup_ui()
@@ -352,8 +352,12 @@ class MainWindow(QMainWindow):
                 'tree': tree,
                 'altitudes': altitudes,
                 'hist2d': hist2d,
+                'x_label': self.attr1_combo.currentText(),
+                'y_label': self.attr2_combo.currentText(),
                 'bins1': bins1,
                 'bins2': bins2,
+                'bins1_scale': BINS_SCALES[self.attr1_combo.currentText()],
+                'bins2_scale': BINS_SCALES[self.attr2_combo.currentText()],
                 'node_to_bin2d': node_to_bin2d,
                 'bin_contributions': bin_contributions,
                 'tree_type': self.current_tree_type
@@ -533,8 +537,8 @@ class MainWindow(QMainWindow):
             max_level = get_max_hierarchy_level(tree, altitudes)
             self.max_watershed_level = max_level
             
-            # Utiliser le niveau sélectionné par l'utilisateur, ou max_level//2 par défaut
-            if hasattr(self, 'current_watershed_level'):
+            # Utiliser le niveau sélectionné par l'utilisateur, ou max_level//2 par défaut (50%)
+            if hasattr(self, 'current_watershed_level') and self.current_watershed_level > 0:
                 level = self.current_watershed_level
             else:
                 level = max_level // 2
@@ -569,9 +573,21 @@ class MainWindow(QMainWindow):
                 f"Impossible de reconstruire l'image watershed:\n{str(e)}"
             )
             
+    def activate_node_display_on_selection(self):
+        """Active automatiquement l'affichage des nœuds lors d'une sélection."""
+        if not self.checkbox_show_nodes.isChecked():
+            self.checkbox_show_nodes.setChecked(True)
+        
+        if not self.checkbox_color_nodes.isChecked():
+            self.checkbox_color_nodes.setChecked(True)
+            
     def on_bins_selected(self, selected_nodes):
         """Handler for bin selection in PS."""
         self.current_selected_nodes = selected_nodes
+        
+        # Activer automatiquement l'affichage des nœuds lors d'une sélection
+        if selected_nodes:
+            self.activate_node_display_on_selection()
         
         # Automatically respect the "Show nodes" option
         if self.checkbox_show_nodes.isChecked():
@@ -610,6 +626,10 @@ class MainWindow(QMainWindow):
             
             # Update PS display with highlighting
             self.ps_canvas.update_display(highlight_bins, contained_nodes)
+            
+            # Activer automatiquement l'affichage des nœuds lors d'une sélection
+            if contained_nodes:
+                self.activate_node_display_on_selection()
             
             # Automatically show nodes if the option is enabled
             if self.checkbox_show_nodes.isChecked():

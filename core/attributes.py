@@ -239,3 +239,15 @@ BINS = {
     'depth': np.linspace(0, 100, 100),
     'mean_vertex_weights': np.linspace(0, 255, 100),
 }
+
+BINS_SCALES = {
+    'area' : 'log',
+    'stability' : 'linear',
+    'growth_oriented' : 'linear',
+    'abruptness_oriented' : 'linear',
+    'appear' : 'linear',
+    'disappear' : 'linear',
+    'height' : 'linear',
+    'depth' : 'linear',
+    'mean_vertex_weights' : 'linear',
+}
