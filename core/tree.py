@@ -111,20 +111,12 @@ def is_compatible_with_tree_type(cube, tree_type):
         # Tree of shapes, min/max trees nécessitent des images en niveaux de gris
         return cube.ndim == 3
 
-
+"""
 def convert_cube_for_tree_type(cube, tree_type):
-    """
-    Convertit le cube au format approprié pour le type d'arbre.
-    
-    Args:
-        cube: Image 3D ou 4D
-        tree_type: Type d'arbre
-        
-    Returns:
-        np.ndarray: Cube converti
-    """
     if tree_type == 'watershed':
+        print("Conversion pour watershed")
         if cube.ndim == 3:
+            print("STACKING CHELOU ------")
             # Convertir grayscale en RGB
             return np.stack([cube, cube, cube], axis=-1)
         else:
@@ -140,7 +132,7 @@ def convert_cube_for_tree_type(cube, tree_type):
             return cube_gray
         else:
             return cube
-
+"""
 
 # Dictionnaire des fonctions de calcul d'arbre
 TREE_FUNCTIONS = {
@@ -197,16 +189,18 @@ def compute_tree_with_type(cube, tree_type, detail_level=None):
         print(f"Conversion du cube pour le type d'arbre {tree_type}")
         
     # Convertir le cube si nécessaire
-    converted_cube = convert_cube_for_tree_type(cube, tree_type)
-    
+    print("Origine du cube:", cube.shape)
+    print("Type d'arbre:", tree_type)
+    #converted_cube = convert_cube_for_tree_type(cube, tree_type)
+
     # Calculer l'arbre
     tree_func = TREE_FUNCTIONS[tree_type]
     
     # Passer le niveau de détail seulement pour le watershed
     if tree_type == 'watershed' and detail_level is not None:
-        tree, altitudes = tree_func(converted_cube, detail_level)
+        tree, altitudes = tree_func(cube, detail_level)
     else:
-        tree, altitudes = tree_func(converted_cube)
+        tree, altitudes = tree_func(cube)
     
     return tree, altitudes
 

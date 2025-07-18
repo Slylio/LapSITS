@@ -305,7 +305,12 @@ class MainWindow(QMainWindow):
                     self.original_rgb_sequence = rgb_sequence
                 
                 print(f"Calcul du PS watershed pour cube RGB de forme: {cube_rgb.shape}")
-                
+                """
+                #Afficher les bandes rouge, verte et bleue pour voir la différence
+                print(f"Bandes R: {cube_rgb[0][0]}")
+                print(f"Bandes G: {cube_rgb[1][0]}")
+                print(f"Bandes B: {cube_rgb[2][0]}")
+                """
                 # Utiliser le cube RGB pour le calcul du PS watershed
                 cube_for_ps = cube_rgb
             else:
@@ -527,13 +532,13 @@ class MainWindow(QMainWindow):
             return
         
         try:
-            # Importer la fonction de reconstruction depuis watershed.py
+            #fonction de reconstruction depuis watershed.py
             from watershed import reconstruct_rgb_at_level, get_max_hierarchy_level
             
             tree = self.ps_data['tree']
             altitudes = self.ps_data['altitudes']
             print(self.cube_rgb.shape)
-            # Obtenir le niveau maximum de la hiérarchie
+            #on obtient le niveau maximum de la hiérarchie
             max_level = get_max_hierarchy_level(tree, altitudes)
             self.max_watershed_level = max_level
             
@@ -545,13 +550,13 @@ class MainWindow(QMainWindow):
                 self.current_watershed_level = level
             
             # Mettre à jour le slider si nécessaire
-            if hasattr(self, 'watershed_level_slider'):
+            if hasattr(self, 'watershed_level_slider'): # Vérifier si le slider existe
                 # Calculer le pourcentage correspondant au niveau actuel
                 percentage = int((level / max_level) * 100) if max_level > 0 else 50
-                self.watershed_level_slider.blockSignals(True)  # Éviter la récursion
-                self.watershed_level_slider.setValue(percentage)
-                self.watershed_level_label.setText(f"{percentage}%")
-                self.watershed_level_slider.blockSignals(False)
+                self.watershed_level_slider.blockSignals(True)  # Éviter la récursion, on ne veut pas que le signal soit émis
+                self.watershed_level_slider.setValue(percentage) # Mettre à jour le slider avec le pourcentage
+                self.watershed_level_label.setText(f"{percentage}%") # Mettre à jour le label avec le pourcentage
+                self.watershed_level_slider.blockSignals(False) # Réactiver les signaux
             
             print(f"Reconstruction watershed au niveau {level}/{max_level} ({int((level/max_level)*100) if max_level > 0 else 50}%)")
             

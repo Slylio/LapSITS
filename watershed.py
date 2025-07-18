@@ -14,6 +14,13 @@ def compute_watershed(cube, detail_level=None):
     Returns:
         tuple: (tree, altitudes)
     """
+    """
+    print(cube[0][0][0])
+    print(cube[1][0][0])
+    print(cube[2][0][0])
+    print(cube[3][0][0])
+    print(cube[4][0][0])  
+    """  
     cube_rgb = cube.astype(np.float32) / 255.0  # Normalisation des valeurs RGB
     mask = [[[0, 0, 0], [0, 1, 0], [0, 0, 0]],
         [[0, 1, 0], [1, 0, 1], [0, 1, 0]],
@@ -178,6 +185,7 @@ def apply_detail_level_filter(tree, altitudes, detail_level):
     return tree, altitudes
 
 
+"""
 def display_watershed_lvl(tree,graph,altitudes, cube_rgb, level):
     cube_vertex_weights = cube_rgb.reshape(-1, 3)
     mean_colors = hg.attribute_mean_vertex_weights(tree, cube_vertex_weights)
@@ -201,4 +209,4 @@ def display_watershed_lvl(tree,graph,altitudes, cube_rgb, level):
         axes[t].set_title(f"t={t}")
     plt.suptitle(f"Coupe {level} – {hce.num_regions_cut(level)} régions")
     plt.tight_layout()
-    plt.show()
+    plt.show()"""

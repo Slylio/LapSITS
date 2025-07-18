@@ -230,7 +230,6 @@ def plot_ps_with_highlights(ax, ps_data, highlight_bins=None, contained_nodes=No
     tree_name = TREE_DISPLAY_NAMES.get(tree_type, tree_type)
     ax.set_title(f'Pattern Spectra - {tree_name}')
     ax.grid(True, which='major', linestyle='-', linewidth=0.5, alpha=0.3)
-    
     return pcm
 
 
