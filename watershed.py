@@ -21,6 +21,7 @@ def compute_watershed(cube, detail_level=None):
     print(cube[3][0][0])
     print(cube[4][0][0])  
     """  
+    print(f"Calcul de l'arbre watershed pour une image de forme {cube.shape} avec niveau de détail {detail_level}")
     cube_rgb = cube.astype(np.float32) / 255.0  # Normalisation des valeurs RGB
     mask = [[[0, 0, 0], [0, 1, 0], [0, 0, 0]],
         [[0, 1, 0], [1, 0, 1], [0, 1, 0]],
@@ -33,7 +34,6 @@ def compute_watershed(cube, detail_level=None):
     # Appliquer le filtrage par niveau de détail si spécifié
     if detail_level is not None:
         tree, altitudes = apply_detail_level_filter(tree, altitudes, detail_level)
-    
     return tree, altitudes
 
 
